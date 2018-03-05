@@ -8,8 +8,9 @@ extern crate cpio;
 
 mod internal;
 
-pub use internal::header::{HeaderTable, HeaderValue};
-pub use internal::lead::{Lead, PackageType};
+pub use internal::index::{IndexTable, IndexValue};
+pub use internal::lead::{LeadSection, PackageType};
 pub use internal::package::Package;
+pub use internal::signature::SignatureSection;
 
 // ========================================================================= //

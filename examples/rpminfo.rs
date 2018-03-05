@@ -25,12 +25,15 @@ fn main() {
         println!("Type: {:?}", package.lead().package_type());
         println!("OS num: {}", package.lead().osnum());
         println!("");
-        println!("SIGNATURE");
-        for (tag, value) in package.signature().map().iter() {
+        if let Some(checksum) = package.signature().header_sha1() {
+            println!("Header SHA1 checksum: {}", checksum);
+        }
+        println!("SIGNATURE TABLE");
+        for (tag, value) in package.signature().table().map().iter() {
             println!("{} = {:?}", tag, value);
         }
         println!("");
-        println!("HEADER");
+        println!("HEADER TABLE");
         for (tag, value) in package.header().map().iter() {
             println!("{} = {:?}", tag, value);
         }

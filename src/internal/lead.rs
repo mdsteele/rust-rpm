@@ -11,15 +11,15 @@ pub const SIGNATURE_TYPE: u16 = 5;
 // ========================================================================= //
 
 /// The "Lead" section of an RPM package file.
-pub struct Lead {
+pub struct LeadSection {
     package_type: PackageType,
     name: Vec<u8>,
     osnum: u16,
 }
 
-impl Lead {
+impl LeadSection {
     /// Reads in an RPM package file lead section.
-    pub(crate) fn read<R: Read>(mut reader: R) -> io::Result<Lead> {
+    pub(crate) fn read<R: Read>(mut reader: R) -> io::Result<LeadSection> {
         let magic_number = reader.read_u32::<BigEndian>()?;
         if magic_number != MAGIC_NUMBER {
             invalid_data!("Not an RPM package (invalid magic number)");
@@ -57,7 +57,7 @@ impl Lead {
         }
         let mut reserved = [0u8; 16];
         reader.read_exact(&mut reserved)?;
-        Ok(Lead {
+        Ok(LeadSection {
                package_type,
                name,
                osnum,
