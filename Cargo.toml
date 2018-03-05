@@ -11,3 +11,6 @@ readme = "README.md"
 [dependencies]
 byteorder = "1"
 cpio = "0.1"
+
+[dev-dependencies]
+clap = "2.30"

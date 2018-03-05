@@ -6,14 +6,10 @@
 extern crate byteorder;
 extern crate cpio;
 
-// ========================================================================= //
+mod internal;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+pub use internal::header::{HeaderTable, HeaderValue};
+pub use internal::lead::{Lead, PackageType};
+pub use internal::package::Package;
 
 // ========================================================================= //
