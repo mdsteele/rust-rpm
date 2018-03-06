@@ -31,6 +31,23 @@ const TAG_ARCH: i32 = 1022;
 /// the cpio headers.
 const TAG_ARCHIVESIZE: i32 = 1046;
 
+/// Optional tag for the preinstall script.
+const TAG_PREIN: i32 = 1023;
+/// Optional tag for the postinstall script.
+const TAG_POSTIN: i32 = 1024;
+/// Optional tag for the preuninstall script.
+const TAG_PREUN: i32 = 1025;
+/// Optional tag for the postuninstall script.
+const TAG_POSTUN: i32 = 1026;
+/// Optional tag for the preinstall script interpreter (e.g `"/bin/sh"`).
+const TAG_PREINPROG: i32 = 1085;
+/// Optional tag for the postinstall script interpreter (e.g `"/bin/sh"`).
+const TAG_POSTINPROG: i32 = 1086;
+/// Optional tag for the preuninstall script interpreter (e.g `"/bin/sh"`).
+const TAG_PREUNPROG: i32 = 1087;
+/// Optional tag for the postuninstall script interpreter (e.g `"/bin/sh"`).
+const TAG_POSTUNPROG: i32 = 1088;
+
 const TAG_OLDFILENAMES: i32 = 1027;
 const TAG_FILESIZES: i32 = 1028;
 const TAG_FILEMODES: i32 = 1030;
@@ -70,7 +87,14 @@ const ENTRIES: &[(bool, &str, i32, IndexType, Option<usize>)] = &[
     (false, "ARCHIVESIZE",  TAG_ARCHIVESIZE,  IndexType::Int32,       Some(1)),
     // TODO: Add others.
     // Installation information:
-    // TODO: Add these.
+    (false, "PREIN",      TAG_PREIN,      IndexType::String, None),
+    (false, "POSTIN",     TAG_POSTIN,     IndexType::String, None),
+    (false, "PREUN",      TAG_PREUN,      IndexType::String, None),
+    (false, "POSTUN",     TAG_POSTUN,     IndexType::String, None),
+    (false, "PREINPROG",  TAG_PREINPROG,  IndexType::String, None),
+    (false, "POSTINPROG", TAG_POSTINPROG, IndexType::String, None),
+    (false, "PREUNPROG",  TAG_PREUNPROG,  IndexType::String, None),
+    (false, "POSTUNPROG", TAG_POSTUNPROG, IndexType::String, None),
     // File information:
     (false, "OLDFILENAMES",  TAG_OLDFILENAMES,  IndexType::StringArray, None),
     (true,  "FILESIZES",     TAG_FILESIZES,     IndexType::Int32,       None),
@@ -96,6 +120,14 @@ const ENTRIES: &[(bool, &str, i32, IndexType, Option<usize>)] = &[
     // TODO: Add others.
     // Other information:
     // TODO: Add these.
+];
+
+#[cfg_attr(rustfmt, rustfmt_skip)]
+const INSTALLATION_ENTRIES: &[(&str, i32, &str, i32)] = &[
+    ("PREIN",  TAG_PREIN,  "PREINPROG",  TAG_PREINPROG),
+    ("POSTIN", TAG_POSTIN, "POSTINPROG", TAG_POSTINPROG),
+    ("PREUN",  TAG_PREUN,  "PREUNPROG",  TAG_PREUNPROG),
+    ("POSTUN", TAG_POSTUN, "POSTUNPROG", TAG_POSTUNPROG),
 ];
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -148,6 +180,18 @@ impl HeaderSection {
                               SECTION,
                               os_string,
                               OS_STRING);
+            }
+        }
+
+        // Validate installation information:
+        for &(name1, tag1, name2, tag2) in INSTALLATION_ENTRIES.iter() {
+            if table.has(tag1) && !table.has(tag2) {
+                invalid_data!("Missing {} entry (tag {}) in {} section \
+                               (since using {})",
+                              name2,
+                              tag2,
+                              SECTION,
+                              name1);
             }
         }
 
