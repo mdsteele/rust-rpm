@@ -55,9 +55,73 @@ impl IndexTable {
     /// Returns the map of all values.
     pub fn map(&self) -> &BTreeMap<i32, IndexValue> { &self.values }
 
-    /// Returns the value for the given tag, if any.
+    /// Returns true if the given tag is present.
+    pub fn has(&self, tag: i32) -> bool { self.values.contains_key(&tag) }
+
+    /// Returns the value for the given tag, if if is present.
     pub fn get(&self, tag: i32) -> Option<&IndexValue> {
         self.values.get(&tag)
+    }
+
+    /// Returns the value for the given tag, if it is present and is a string.
+    pub fn get_string(&self, tag: i32) -> Option<&str> {
+        match self.get(tag) {
+            Some(&IndexValue::String(ref string)) => Some(string.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Returns the value for the given tag, if it is present and is binary.
+    pub fn get_binary(&self, tag: i32) -> Option<&[u8]> {
+        match self.get(tag) {
+            Some(&IndexValue::Binary(ref binary)) => Some(binary.as_slice()),
+            _ => None,
+        }
+    }
+
+    /// Returns the nth value for the given tag, if it is present, and is a
+    /// string array, and has that many values.
+    pub fn get_nth_string(&self, tag: i32, n: usize) -> Option<&str> {
+        match self.get(tag) {
+            Some(&IndexValue::StringArray(ref values)) => {
+                if n < values.len() {
+                    Some(&values[n])
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the nth value for the given tag, if it is present, and is an
+    /// int16 array, and has that many values.
+    pub fn get_nth_int16(&self, tag: i32, n: usize) -> Option<i16> {
+        match self.get(tag) {
+            Some(&IndexValue::Int16(ref values)) => {
+                if n < values.len() {
+                    Some(values[n])
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the nth value for the given tag, if it is present, and is an
+    /// int32 array, and has that many values.
+    pub fn get_nth_int32(&self, tag: i32, n: usize) -> Option<i32> {
+        match self.get(tag) {
+            Some(&IndexValue::Int32(ref values)) => {
+                if n < values.len() {
+                    Some(values[n])
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn validate(&self, section: &str, required: bool, name: &str,
@@ -92,6 +156,24 @@ impl IndexTable {
                           name,
                           tag,
                           section);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn expect_count(&self, section: &str, name1: &str, tag1: i32,
+                               count1: usize, name2: &str, tag2: i32)
+                               -> io::Result<()> {
+        let count2 = self.get(tag2).map(IndexValue::count).unwrap_or(0);
+        if count1 != count2 {
+            invalid_data!("Counts for {} entry (tag {}) and {} entry (tag {}) \
+                           in {} section don't match ({} vs. {})",
+                          name1,
+                          tag1,
+                          name2,
+                          tag2,
+                          section,
+                          count1,
+                          count2);
         }
         Ok(())
     }

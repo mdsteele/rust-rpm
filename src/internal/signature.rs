@@ -1,4 +1,4 @@
-use internal::index::{IndexTable, IndexType, IndexValue};
+use internal::index::{IndexTable, IndexType};
 use std::io::{self, Read};
 
 // ========================================================================= //
@@ -48,20 +48,13 @@ impl SignatureSection {
     /// Returns the expected SHA1 checksum of the package's Header section, if
     /// any.
     pub fn header_sha1(&self) -> Option<&str> {
-        match self.table.get(TAG_SHA1) {
-            Some(&IndexValue::String(ref checksum)) => Some(checksum.as_str()),
-            Some(_) => panic!("Invalid SHA1 entry (should not happen!)"),
-            None => None,
-        }
+        self.table.get_string(TAG_SHA1)
     }
 
     /// Returns the expected MD5 checksum of the package's Header and Archive
     /// sections.
     pub fn header_and_payload_md5(&self) -> &[u8] {
-        match self.table.get(TAG_MD5) {
-            Some(&IndexValue::Binary(ref checksum)) => checksum.as_slice(),
-            _ => panic!("Invalid MD5 entry (should not happen!)"),
-        }
+        self.table.get_binary(TAG_MD5).unwrap()
     }
 }
 

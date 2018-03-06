@@ -6,6 +6,7 @@ use std::io::{self, Read};
 pub const MAGIC_NUMBER: u32 = 0xedabeedb;
 pub const VERSION_MAJOR: u8 = 3;
 pub const VERSION_MINOR: u8 = 0;
+pub const OS_NUM: u16 = 1;
 pub const SIGNATURE_TYPE: u16 = 5;
 
 // ========================================================================= //
@@ -14,7 +15,6 @@ pub const SIGNATURE_TYPE: u16 = 5;
 pub struct LeadSection {
     package_type: PackageType,
     name: Vec<u8>,
-    osnum: u16,
 }
 
 impl LeadSection {
@@ -50,18 +50,17 @@ impl LeadSection {
         while name.last() == Some(&0) {
             name.pop();
         }
-        let osnum = reader.read_u16::<BigEndian>()?;
+        let os_num = reader.read_u16::<BigEndian>()?;
+        if os_num != OS_NUM {
+            invalid_data!("Invalid RPM OS number ({})", os_num);
+        }
         let signature_type = reader.read_u16::<BigEndian>()?;
         if signature_type != SIGNATURE_TYPE {
             invalid_data!("Invalid RPM signature type ({})", signature_type);
         }
         let mut reserved = [0u8; 16];
         reader.read_exact(&mut reserved)?;
-        Ok(LeadSection {
-               package_type,
-               name,
-               osnum,
-           })
+        Ok(LeadSection { package_type, name })
     }
 
     /// Returns what type of package this is (binary or source).
@@ -69,9 +68,6 @@ impl LeadSection {
 
     /// Returns the name of the package.
     pub fn name(&self) -> &[u8] { &self.name }
-
-    /// Returns the OS number that the package is for (e.g. 1 for Linux).
-    pub fn osnum(&self) -> u16 { self.osnum }
 }
 
 // ========================================================================= //

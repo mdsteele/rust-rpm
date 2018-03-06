@@ -1,4 +1,4 @@
-use internal::index::IndexTable;
+use internal::header::HeaderSection;
 use internal::lead::LeadSection;
 use internal::signature::SignatureSection;
 use std::io::{self, Read};
@@ -11,7 +11,7 @@ pub struct Package<R: Read> {
     reader: R,
     lead: LeadSection,
     signature: SignatureSection,
-    header: IndexTable,
+    header: HeaderSection,
 }
 
 impl<R: Read> Package<R> {
@@ -19,7 +19,7 @@ impl<R: Read> Package<R> {
     pub fn read(mut reader: R) -> io::Result<Package<R>> {
         let lead = LeadSection::read(reader.by_ref())?;
         let signature = SignatureSection::read(reader.by_ref())?;
-        let header = IndexTable::read(reader.by_ref())?;
+        let header = HeaderSection::read(reader.by_ref())?;
         Ok(Package {
                reader,
                lead,
@@ -31,11 +31,13 @@ impl<R: Read> Package<R> {
     /// Returns the lead section.
     pub fn lead(&self) -> &LeadSection { &self.lead }
 
-    /// Returns the table for the signature section.
+    /// Returns the signature section.
     pub fn signature(&self) -> &SignatureSection { &self.signature }
 
-    /// Returns the table for the header section.
-    pub fn header(&self) -> &IndexTable { &self.header }
+    /// Returns the header section.
+    pub fn header(&self) -> &HeaderSection { &self.header }
+
+    // TODO: Support reading Archive section
 }
 
 // ========================================================================= //

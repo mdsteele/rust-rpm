@@ -21,9 +21,9 @@ fn main() {
         let path = submatches.value_of("rpm").unwrap();
         let file = fs::File::open(path).unwrap();
         let package = rpmpkg::Package::read(file).unwrap();
-        println!("Name: {}", String::from_utf8_lossy(package.lead().name()));
+        println!("Full name: {}",
+                 String::from_utf8_lossy(package.lead().name()));
         println!("Type: {:?}", package.lead().package_type());
-        println!("OS num: {}", package.lead().osnum());
         println!("");
         if let Some(checksum) = package.signature().header_sha1() {
             println!("Header SHA1 checksum: {}", checksum);
@@ -33,9 +33,12 @@ fn main() {
             println!("{} = {:?}", tag, value);
         }
         println!("");
-        println!("HEADER TABLE");
-        for (tag, value) in package.header().map().iter() {
-            println!("{} = {:?}", tag, value);
+        println!("Name: {}", package.header().package_name());
+        println!("Version: {}", package.header().version_string());
+        println!("Release: {}", package.header().release_string());
+        println!("Files:");
+        for file in package.header().files() {
+            println!("  {} ({} bytes)", file.name(), file.size());
         }
     }
 }

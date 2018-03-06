@@ -8,6 +8,7 @@ extern crate cpio;
 
 mod internal;
 
+pub use internal::header::{FileInfo, FileInfoIter, HeaderSection};
 pub use internal::index::{IndexTable, IndexValue};
 pub use internal::lead::{LeadSection, PackageType};
 pub use internal::package::Package;
