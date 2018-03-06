@@ -177,6 +177,22 @@ impl IndexTable {
         }
         Ok(())
     }
+
+    pub(crate) fn expect_string_value(&self, section: &str, name: &str,
+                                      tag: i32, value: &str)
+                                      -> io::Result<()> {
+        let actual_value = self.get_string(tag).unwrap();
+        if actual_value != value {
+            invalid_data!("Incorrect value for {} entry (tag {}) in \
+                           {} section (was {:?}, but must be {:?})",
+                          name,
+                          tag,
+                          section,
+                          actual_value,
+                          value);
+        }
+        Ok(())
+    }
 }
 
 // ========================================================================= //

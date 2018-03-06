@@ -24,6 +24,15 @@ fn main() {
                         .arg(Arg::with_name("rpm")
                                  .required(true)
                                  .help("Path to RPM package file")))
+        .subcommand(SubCommand::with_name("list")
+                        .about("Lists the files in the package")
+                        .arg(Arg::with_name("long")
+                                 .short("l")
+                                 .long("long")
+                                 .help("Lists in long format"))
+                        .arg(Arg::with_name("rpm")
+                                 .required(true)
+                                 .help("Path to RPM package file")))
         .get_matches();
     if let Some(submatches) = matches.subcommand_matches("changelog") {
         let path = submatches.value_of("rpm").unwrap();
@@ -31,9 +40,7 @@ fn main() {
         let package = rpmpkg::Package::read(file).unwrap();
         for entry in package.header().changelog() {
             let datetime = timestamp_datetime(entry.timestamp());
-            println!("{}    {}",
-                     datetime.date().format("%Y %b %d"),
-                     entry.author());
+            println!("{}    {}", datetime.format("%Y-%m-%d"), entry.author());
             println!("{}", entry.description());
             println!();
         }
@@ -56,13 +63,67 @@ fn main() {
         println!("Name: {}", package.header().package_name());
         println!("Version: {}", package.header().version_string());
         println!("Release: {}", package.header().release_string());
-        println!("Files:");
-        for file in package.header().files() {
-            println!("  {} ({} bytes)", file.name(), file.size());
+        if let Some(vendor) = package.header().vendor_name() {
+            println!("Vendor: {}", vendor);
+        }
+        println!("License: {}", package.header().license_name());
+        if let Some(time) = package.header().build_time() {
+            println!("Built at: {}",
+                     timestamp_datetime(time).format("%Y-%m-%d %H:%M:%S"));
         }
         println!("HEADER TABLE");
         for (tag, value) in package.header().table().map().iter() {
             println!("{} = {:?}", tag, value);
+        }
+    } else if let Some(submatches) = matches.subcommand_matches("list") {
+        let long = submatches.is_present("long");
+        let path = submatches.value_of("rpm").unwrap();
+        let file = fs::File::open(path).unwrap();
+        let package = rpmpkg::Package::read(file).unwrap();
+        for file in package.header().files() {
+            if !long {
+                println!("{}", file.name());
+                continue;
+            }
+            let mode = {
+                let bits = file.mode();
+                let mut string = String::new();
+                string.push(if file.symlink_target().is_some() {
+                                'l'
+                            } else {
+                                '-'
+                            });
+                string.push(if bits & 0o400 == 0 { '-' } else { 'r' });
+                string.push(if bits & 0o200 == 0 { '-' } else { 'w' });
+                string.push(if bits & 0o100 == 0 { '-' } else { 'x' });
+                string.push(if bits & 0o040 == 0 { '-' } else { 'r' });
+                string.push(if bits & 0o020 == 0 { '-' } else { 'w' });
+                string.push(if bits & 0o010 == 0 { '-' } else { 'x' });
+                string.push(if bits & 0o004 == 0 { '-' } else { 'r' });
+                string.push(if bits & 0o002 == 0 { '-' } else { 'w' });
+                string.push(if bits & 0o001 == 0 { '-' } else { 'x' });
+                string
+            };
+            let size = if file.size() >= 100_000_000 {
+                format!("{}M", file.size() / (1 << 20))
+            } else if file.size() >= 1_000_000 {
+                format!("{}K", file.size() / (1 << 10))
+            } else {
+                format!("{}B", file.size())
+            };
+            let mtime = timestamp_datetime(file.modified_time())
+                .format("%Y-%m-%d %H:%M");
+            let mut line = format!("{} {} {} {:>6} {} {}",
+                                   mode,
+                                   file.user_name(),
+                                   file.group_name(),
+                                   size,
+                                   mtime,
+                                   file.name());
+            if let Some(target) = file.symlink_target() {
+                line = format!("{} -> {}", line, target);
+            }
+            println!("{}", line);
         }
     }
 }

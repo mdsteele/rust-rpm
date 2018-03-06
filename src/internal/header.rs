@@ -4,11 +4,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // ========================================================================= //
 
-/// The name of this section.
-const SECTION: &str = "Header";
-
-// ========================================================================= //
-
 /// Required tag for the name of the package.
 const TAG_NAME: i32 = 1000;
 /// Required tag for the version number of the package.
@@ -21,15 +16,29 @@ const TAG_SUMMARY: i32 = 1004;
 const TAG_DESCRIPTION: i32 = 1005;
 /// Required tag for the sum of the sizes of the regular files in the archive.
 const TAG_SIZE: i32 = 1009;
+/// Optional tag for the author of the package.
+const TAG_VENDOR: i32 = 1011;
 /// Required tag for the license which applies to this package.
 const TAG_LICENSE: i32 = 1014;
-/// Required tag for the OS of the package.  The value must be "linux".
+/// Required tag for the administrative group to which this package belongs.
+const TAG_GROUP: i32 = 1016;
+/// Optional tag for a URL with more information about the package.
+const TAG_URL: i32 = 1020;
+/// Required tag for the OS of the package.  The value must be `"linux"`.
 const TAG_OS: i32 = 1021;
 /// Required tag for the archetecture that the package is for.
 const TAG_ARCH: i32 = 1022;
 /// Optional tag for the uncompressed size of the Payload archive, including
 /// the cpio headers.
 const TAG_ARCHIVESIZE: i32 = 1046;
+/// Required tag for the format of the Archive section.  The value must be
+/// `"cpio"`.
+const TAG_PAYLOADFORMAT: i32 = 1124;
+/// Required tag for the compression used on the Archive section
+/// (e.g. `"gzip"`).
+const TAG_PAYLOADCOMPRESSOR: i32 = 1125;
+/// Required tag for the compression level used for the Payload (e.g. `"9"`).
+const TAG_PAYLOADFLAGS: i32 = 1126;
 
 /// Optional tag for the preinstall script.
 const TAG_PREIN: i32 = 1023;
@@ -65,10 +74,24 @@ const TAG_DIRINDEXES: i32 = 1116;
 const TAG_BASENAMES: i32 = 1117;
 const TAG_DIRNAMES: i32 = 1118;
 
+/// Required tag for the names of the dependencies provided by this package.
 const TAG_PROVIDENAME: i32 = 1047;
-const TAG_REQUIREFLAGS: i32 = 1048;
+const TAG_PROVIDEFLAGS: i32 = 1112;
+const TAG_PROVIDEVERSION: i32 = 1113;
+/// Required tag for the names of the dependencies of this package.
 const TAG_REQUIRENAME: i32 = 1049;
+const TAG_REQUIREFLAGS: i32 = 1048;
 const TAG_REQUIREVERSION: i32 = 1050;
+/// Optional tag for the names of any dependencies that conflict with this
+/// package.
+const TAG_CONFLICTNAME: i32 = 1054;
+const TAG_CONFLICTFLAGS: i32 = 1053;
+const TAG_CONFLICTVERSION: i32 = 1055;
+/// Optional tag for the names of any dependencies that obsolete with this
+/// package.
+const TAG_OBSOLETENAME: i32 = 1090;
+const TAG_OBSOLETEFLAGS: i32 = 1114;
+const TAG_OBSOLETEVERSION: i32 = 1115;
 
 /// Optional tag for the timestamp (in seconds since the epoch) when the
 /// package was built.
@@ -93,17 +116,23 @@ const TAG_OPTFLAGS: i32 = 1122;
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const ENTRIES: &[(bool, &str, i32, IndexType, Option<usize>)] = &[
     // Package information:
-    (true,  "NAME",         TAG_NAME,         IndexType::String,      None),
-    (true,  "VERSION",      TAG_VERSION,      IndexType::String,      None),
-    (true,  "RELEASE",      TAG_RELEASE,      IndexType::String,      None),
-    (true,  "SUMMARY",      TAG_SUMMARY,      IndexType::I18nString,  None),
-    (true,  "DESCRIPTION",  TAG_DESCRIPTION,  IndexType::I18nString,  None),
-    (true,  "SIZE",         TAG_SIZE,         IndexType::Int32,       Some(1)),
-    (true,  "LICENSE",      TAG_LICENSE,      IndexType::String,      None),
-    (true,  "OS",           TAG_OS,           IndexType::String,      None),
-    (true,  "ARCH",         TAG_ARCH,         IndexType::String,      None),
-    (false, "ARCHIVESIZE",  TAG_ARCHIVESIZE,  IndexType::Int32,       Some(1)),
-    // TODO: Add others.
+    (true,  "NAME",         TAG_NAME,         IndexType::String,     None),
+    (true,  "VERSION",      TAG_VERSION,      IndexType::String,     None),
+    (true,  "RELEASE",      TAG_RELEASE,      IndexType::String,     None),
+    (true,  "SUMMARY",      TAG_SUMMARY,      IndexType::I18nString, None),
+    (true,  "DESCRIPTION",  TAG_DESCRIPTION,  IndexType::I18nString, None),
+    (true,  "SIZE",         TAG_SIZE,         IndexType::Int32,      Some(1)),
+    (false, "VENDOR",       TAG_VENDOR,       IndexType::String,     None),
+    (true,  "LICENSE",      TAG_LICENSE,      IndexType::String,     None),
+    (true,  "GROUP",        TAG_GROUP,        IndexType::I18nString, None),
+    (false, "URL",          TAG_URL,          IndexType::String,     None),
+    (true,  "OS",           TAG_OS,           IndexType::String,     None),
+    (true,  "ARCH",         TAG_ARCH,         IndexType::String,     None),
+    (false, "ARCHIVESIZE",  TAG_ARCHIVESIZE,  IndexType::Int32,      Some(1)),
+    (true,  "PAYLOADFORMAT", TAG_PAYLOADFORMAT, IndexType::String,   None),
+    (true,  "PAYLOADCOMPRESSOR", TAG_PAYLOADCOMPRESSOR,
+     IndexType::String, None),
+    (true,  "PAYLOADFLAGS", TAG_PAYLOADFLAGS, IndexType::String,     None),
     // Installation information:
     (false, "PREIN",      TAG_PREIN,      IndexType::String, None),
     (false, "POSTIN",     TAG_POSTIN,     IndexType::String, None),
@@ -132,10 +161,17 @@ const ENTRIES: &[(bool, &str, i32, IndexType, Option<usize>)] = &[
     (false, "DIRNAMES",      TAG_DIRNAMES,      IndexType::StringArray, None),
     // Dependency information:
     (true,  "PROVIDENAME",   TAG_PROVIDENAME,   IndexType::StringArray, None),
-    (true,  "REQUIREFLAGS",  TAG_REQUIREFLAGS,  IndexType::Int32,       None),
+    (true,  "PROVIDEFLAGS",  TAG_PROVIDEFLAGS,  IndexType::Int32,       None),
+    (true,  "PROVIDEVERSION",TAG_PROVIDEVERSION,IndexType::StringArray, None),
     (true,  "REQUIRENAME",   TAG_REQUIRENAME,   IndexType::StringArray, None),
+    (true,  "REQUIREFLAGS",  TAG_REQUIREFLAGS,  IndexType::Int32,       None),
     (true,  "REQUIREVERSION",TAG_REQUIREVERSION,IndexType::StringArray, None),
-    // TODO: Add others.
+    (false, "CONFLICTNAME",  TAG_CONFLICTNAME,  IndexType::StringArray, None),
+    (false, "CONFLICTFLAGS", TAG_CONFLICTFLAGS, IndexType::Int32,       None),
+    (false,"CONFLICTVERSION",TAG_CONFLICTVERSION,IndexType::StringArray,None),
+    (false, "OBSOLETENAME",  TAG_OBSOLETENAME,  IndexType::StringArray, None),
+    (false, "OBSOLETEFLAGS", TAG_OBSOLETEFLAGS, IndexType::Int32,       None),
+    (false,"OBSOLETEVERSION",TAG_OBSOLETEVERSION,IndexType::StringArray,None),
     // Other information:
     (false, "BUILDTIME",     TAG_BUILDTIME,     IndexType::Int32,    Some(1)),
     (false, "BUILDHOST",     TAG_BUILDHOST,     IndexType::String,      None),
@@ -172,12 +208,18 @@ const FILE_ENTRIES: &[(&str, i32)] = &[
 
 // ========================================================================= //
 
+/// The name of this section.
+const SECTION: &str = "Header";
+
 /// Can be listed under `TAG_REQUIRENAME` to indicate that we're not using
 /// `TAG_OLDFILENAMES`.
 const REQUIRE_COMPRESSED_FILE_NAMES: &str = "rpmlib(CompressedFileNames)";
 
 /// The required value under `TAG_OS`.
 const OS_STRING: &str = "linux";
+
+/// The required value under `TAG_PAYLOADFORMAT`.
+const PAYLOAD_FORMAT: &str = "cpio";
 
 // ========================================================================= //
 
@@ -195,17 +237,12 @@ impl HeaderSection {
         }
 
         // Validate package information:
-        {
-            let os_string = table.get_string(TAG_OS).unwrap();
-            if os_string != OS_STRING {
-                invalid_data!("Incorrect value for OS entry (tag {}) in \
-                               {} section (was {:?}, but must be {:?})",
-                              TAG_OS,
-                              SECTION,
-                              os_string,
-                              OS_STRING);
-            }
-        }
+        table.expect_string_value(SECTION, "OS", TAG_OS, OS_STRING)?;
+        table
+            .expect_string_value(SECTION,
+                                 "PAYLOADFORMAT",
+                                 TAG_PAYLOADFORMAT,
+                                 PAYLOAD_FORMAT)?;
 
         // Validate installation information:
         for &(name1, tag1, name2, tag2) in INSTALLATION_ENTRIES.iter() {
@@ -357,6 +394,16 @@ impl HeaderSection {
         self.table.get_string(TAG_RELEASE).unwrap()
     }
 
+    /// Returns the name of the author of the package.
+    pub fn vendor_name(&self) -> Option<&str> {
+        self.table.get_string(TAG_VENDOR)
+    }
+
+    /// Returns the name of the license which applies to this package.
+    pub fn license_name(&self) -> &str {
+        self.table.get_string(TAG_LICENSE).unwrap()
+    }
+
     /// Returns an iterator over the files in the package.
     pub fn files(&self) -> FileInfoIter {
         let length = self.table.get(TAG_FILESIZES).unwrap().count();
@@ -411,11 +458,29 @@ impl FileInfo {
     /// Returns the size of the file, in bytes.
     pub fn size(&self) -> u64 { ((self.size as i64) & 0xffffffff) as u64 }
 
+    /// Returns the Unix mode bits for this file.
+    pub fn mode(&self) -> u16 { ((self.mode as i32) & 0xffff) as u16 }
+
     /// Returns the file's last-modified timestamp.
     pub fn modified_time(&self) -> SystemTime { to_system_time(self.mtime) }
 
     /// Returns the file's expected MD5 checksum.
     pub fn md5_checksum(&self) -> &str { &self.md5 }
+
+    /// Returns the target path if this file is a symbolic link.
+    pub fn symlink_target(&self) -> Option<&str> {
+        if self.linkto.is_empty() {
+            None
+        } else {
+            Some(&self.linkto)
+        }
+    }
+
+    /// Returns the name of the owner user for this file.
+    pub fn user_name(&self) -> &str { &self.user }
+
+    /// Returns the name of the group for this file.
+    pub fn group_name(&self) -> &str { &self.group }
 }
 
 // ========================================================================= //
@@ -551,6 +616,23 @@ impl<'a> ExactSizeIterator for ChangeLogIter<'a> {}
 fn to_system_time(time: i32) -> SystemTime {
     let seconds = ((time as i64) & 0xffffffff) as u64;
     UNIX_EPOCH + Duration::new(seconds, 0)
+}
+
+// ========================================================================= //
+
+#[cfg(test)]
+mod tests {
+    use super::ENTRIES;
+    use std::collections::HashSet;
+
+    #[test]
+    fn tags_are_unique() {
+        let mut tags = HashSet::new();
+        for &(_, _, tag, _, _) in ENTRIES.iter() {
+            assert!(!tags.contains(&tag));
+            tags.insert(tag);
+        }
+    }
 }
 
 // ========================================================================= //

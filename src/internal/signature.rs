@@ -59,3 +59,20 @@ impl SignatureSection {
 }
 
 // ========================================================================= //
+
+#[cfg(test)]
+mod tests {
+    use super::ENTRIES;
+    use std::collections::HashSet;
+
+    #[test]
+    fn tags_are_unique() {
+        let mut tags = HashSet::new();
+        for &(_, _, tag, _, _) in ENTRIES.iter() {
+            assert!(!tags.contains(&tag));
+            tags.insert(tag);
+        }
+    }
+}
+
+// ========================================================================= //
