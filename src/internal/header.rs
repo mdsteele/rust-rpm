@@ -17,7 +17,7 @@ const TAG_VERSION: i32 = 1001;
 const TAG_RELEASE: i32 = 1002;
 /// Required tag for a one-line description of the package.
 const TAG_SUMMARY: i32 = 1004;
-/// Required tag for a longer description of the package.
+/// Required tag for a longer, multi-line description of the package.
 const TAG_DESCRIPTION: i32 = 1005;
 /// Required tag for the sum of the sizes of the regular files in the archive.
 const TAG_SIZE: i32 = 1009;
@@ -70,6 +70,24 @@ const TAG_REQUIREFLAGS: i32 = 1048;
 const TAG_REQUIRENAME: i32 = 1049;
 const TAG_REQUIREVERSION: i32 = 1050;
 
+/// Optional tag for the timestamp (in seconds since the epoch) when the
+/// package was built.
+const TAG_BUILDTIME: i32 = 1006;
+/// Optional tag for the hostname of the system on which which the package was
+/// built.
+const TAG_BUILDHOST: i32 = 1007;
+/// Optional tag for the flags to control how files are to be verified after
+/// install.
+const TAG_FILEVERIFYFLAGS: i32 = 1045;
+/// Optional tag for the timestamp for each changelog entry.
+const TAG_CHANGELOGTIME: i32 = 1080;
+/// Optional tag for the author name for each changelog entry.
+const TAG_CHANGELOGNAME: i32 = 1081;
+/// Optional tag for the description for each changelog entry.
+const TAG_CHANGELOGTEXT: i32 = 1082;
+/// Optional tag for the compiler flags used when building this package.
+const TAG_OPTFLAGS: i32 = 1122;
+
 // Known index entires for Header section.  The bool indicates whether the
 // entry is required (true) or optional (false).
 #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -119,7 +137,13 @@ const ENTRIES: &[(bool, &str, i32, IndexType, Option<usize>)] = &[
     (true,  "REQUIREVERSION",TAG_REQUIREVERSION,IndexType::StringArray, None),
     // TODO: Add others.
     // Other information:
-    // TODO: Add these.
+    (false, "BUILDTIME",     TAG_BUILDTIME,     IndexType::Int32,    Some(1)),
+    (false, "BUILDHOST",     TAG_BUILDHOST,     IndexType::String,      None),
+    (false, "FILEVERIFYFLAGS", TAG_FILEVERIFYFLAGS, IndexType::Int32,   None),
+    (false, "CHANGELOGTIME", TAG_CHANGELOGTIME, IndexType::Int32,       None),
+    (false, "CHANGELOGNAME", TAG_CHANGELOGNAME, IndexType::StringArray, None),
+    (false, "CHANGELOGTEXT", TAG_CHANGELOGTEXT, IndexType::StringArray, None),
+    (false, "OPTFLAGS",      TAG_OPTFLAGS,      IndexType::String,      None),
 ];
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -335,13 +359,25 @@ impl HeaderSection {
 
     /// Returns an iterator over the files in the package.
     pub fn files(&self) -> FileInfoIter {
-        let length = match self.table.get(TAG_FILESIZES) {
-            Some(&IndexValue::Int32(ref values)) => values.len(),
-            _ => panic!(),
-        };
+        let length = self.table.get(TAG_FILESIZES).unwrap().count();
         FileInfoIter {
             table: &self.table,
             use_old_filenames: self.use_old_filenames,
+            next_index: 0,
+            length,
+        }
+    }
+
+    /// Returns the timestamp when the package was built, if present.
+    pub fn build_time(&self) -> Option<SystemTime> {
+        self.table.get_nth_int32(TAG_BUILDTIME, 0).map(to_system_time)
+    }
+
+    /// Returns an iterator over the entries in the package changelog.
+    pub fn changelog(&self) -> ChangeLogIter {
+        let length = self.table.get(TAG_CHANGELOGTIME).unwrap().count();
+        ChangeLogIter {
+            table: &self.table,
             next_index: 0,
             length,
         }
@@ -376,10 +412,7 @@ impl FileInfo {
     pub fn size(&self) -> u64 { ((self.size as i64) & 0xffffffff) as u64 }
 
     /// Returns the file's last-modified timestamp.
-    pub fn modified_time(&self) -> SystemTime {
-        let seconds = ((self.mtime as i64) & 0xffffffff) as u64;
-        UNIX_EPOCH + Duration::new(seconds, 0)
-    }
+    pub fn modified_time(&self) -> SystemTime { to_system_time(self.mtime) }
 
     /// Returns the file's expected MD5 checksum.
     pub fn md5_checksum(&self) -> &str { &self.md5 }
@@ -451,5 +484,73 @@ impl<'a> Iterator for FileInfoIter<'a> {
 }
 
 impl<'a> ExactSizeIterator for FileInfoIter<'a> {}
+
+// ========================================================================= //
+
+/// An entry in the package changelog.
+pub struct ChangeLogEntry {
+    timestamp: SystemTime,
+    author: String,
+    description: String,
+}
+
+impl ChangeLogEntry {
+    /// Returns the timestamp when this change was made.
+    pub fn timestamp(&self) -> SystemTime { self.timestamp }
+
+    /// Returns the name of the author of this change.
+    pub fn author(&self) -> &str { &self.author }
+
+    /// Returns a description of this change.
+    pub fn description(&self) -> &str { &self.description }
+}
+
+// ========================================================================= //
+
+/// An iterator over entries in the package changelog.
+pub struct ChangeLogIter<'a> {
+    table: &'a IndexTable,
+    next_index: usize,
+    length: usize,
+}
+
+impl<'a> Iterator for ChangeLogIter<'a> {
+    type Item = ChangeLogEntry;
+
+    fn next(&mut self) -> Option<ChangeLogEntry> {
+        let idx = self.next_index;
+        if idx == self.length {
+            return None;
+        }
+        self.next_index += 1;
+        let time = self.table.get_nth_int32(TAG_CHANGELOGTIME, idx).unwrap();
+        let author =
+            self.table.get_nth_string(TAG_CHANGELOGNAME, idx).unwrap();
+        let description =
+            self.table.get_nth_string(TAG_CHANGELOGTEXT, idx).unwrap();
+        let entry = ChangeLogEntry {
+            timestamp: to_system_time(time),
+            author: author.to_string(),
+            description: description.to_string(),
+        };
+        Some(entry)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.length - self.next_index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> ExactSizeIterator for ChangeLogIter<'a> {}
+
+// ========================================================================= //
+
+/// Converts a timestamp in seconds since the epoch to a `SystemTime`, treating
+/// the `i32` as a `u32`.
+fn to_system_time(time: i32) -> SystemTime {
+    let seconds = ((time as i64) & 0xffffffff) as u64;
+    UNIX_EPOCH + Duration::new(seconds, 0)
+}
 
 // ========================================================================= //

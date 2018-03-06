@@ -13,4 +13,5 @@ byteorder = "1"
 cpio = "0.1"
 
 [dev-dependencies]
+chrono = "0.4"
 clap = "2.30"
