@@ -5,6 +5,7 @@ extern crate rpmpkg;
 use chrono::NaiveDateTime;
 use clap::{App, Arg, SubCommand};
 use std::fs;
+use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ========================================================================= //
@@ -14,6 +15,11 @@ fn main() {
         .version(env!("CARGO_PKG_VERSION"))
         .author("Matthew D. Steele <mdsteele@alum.mit.edu>")
         .about("Inspects RPM package files")
+        .subcommand(SubCommand::with_name("archive")
+                        .about("Extracts the CPIO archive from the package")
+                        .arg(Arg::with_name("rpm")
+                                 .required(true)
+                                 .help("Path to RPM package file")))
         .subcommand(SubCommand::with_name("changelog")
                         .about("Outputs the package's changelog")
                         .arg(Arg::with_name("rpm")
@@ -34,7 +40,12 @@ fn main() {
                                  .required(true)
                                  .help("Path to RPM package file")))
         .get_matches();
-    if let Some(submatches) = matches.subcommand_matches("changelog") {
+    if let Some(submatches) = matches.subcommand_matches("archive") {
+        let path = submatches.value_of("rpm").unwrap();
+        let file = fs::File::open(path).unwrap();
+        let mut package = rpmpkg::Package::read(file).unwrap();
+        package.decompress_archive(io::stdout()).unwrap();
+    } else if let Some(submatches) = matches.subcommand_matches("changelog") {
         let path = submatches.value_of("rpm").unwrap();
         let file = fs::File::open(path).unwrap();
         let package = rpmpkg::Package::read(file).unwrap();

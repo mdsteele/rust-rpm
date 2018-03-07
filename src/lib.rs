@@ -4,7 +4,9 @@
 #![warn(missing_docs)]
 
 extern crate byteorder;
+extern crate bzip2;
 extern crate cpio;
+extern crate flate2;
 
 mod internal;
 

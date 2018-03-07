@@ -231,7 +231,7 @@ pub struct HeaderSection {
 
 impl HeaderSection {
     pub(crate) fn read<R: Read>(reader: R) -> io::Result<HeaderSection> {
-        let table = IndexTable::read(reader)?;
+        let table = IndexTable::read(reader, false)?;
         for &(required, name, tag, itype, count) in ENTRIES.iter() {
             table.validate(SECTION, required, name, tag, itype, count)?;
         }
@@ -402,6 +402,12 @@ impl HeaderSection {
     /// Returns the name of the license which applies to this package.
     pub fn license_name(&self) -> &str {
         self.table.get_string(TAG_LICENSE).unwrap()
+    }
+
+    /// Returns the name of the compression type used for the Archive section
+    /// (e.g. "gzip" or "bzip2").
+    pub fn payload_compressor(&self) -> &str {
+        self.table.get_string(TAG_PAYLOADCOMPRESSOR).unwrap()
     }
 
     /// Returns an iterator over the files in the package.

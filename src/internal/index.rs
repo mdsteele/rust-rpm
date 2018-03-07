@@ -14,7 +14,8 @@ pub struct IndexTable {
 }
 
 impl IndexTable {
-    pub(crate) fn read<R: Read>(mut reader: R) -> io::Result<IndexTable> {
+    pub(crate) fn read<R: Read>(mut reader: R, pad: bool)
+                                -> io::Result<IndexTable> {
         let magic_number = reader.read_u32::<BigEndian>()?;
         if magic_number != MAGIC_NUMBER {
             invalid_data!("Invalid magic number for index table ({:08x})",
@@ -26,8 +27,10 @@ impl IndexTable {
                           reserved);
         }
         let num_values = reader.read_u32::<BigEndian>()? as usize;
-        let data_size = reader.read_u32::<BigEndian>()? as usize;
-        let data_size = ((data_size + 7) / 8) * 8;
+        let mut data_size = reader.read_u32::<BigEndian>()? as usize;
+        if pad {
+            data_size = ((data_size + 7) / 8) * 8;
+        }
         let mut index_map = BTreeMap::new();
         for _ in 0..num_values {
             let tag = reader.read_i32::<BigEndian>()?;

@@ -35,7 +35,7 @@ pub struct SignatureSection {
 
 impl SignatureSection {
     pub(crate) fn read<R: Read>(reader: R) -> io::Result<SignatureSection> {
-        let table = IndexTable::read(reader)?;
+        let table = IndexTable::read(reader, true)?;
         for &(required, name, tag, itype, count) in ENTRIES.iter() {
             table.validate("Signature", required, name, tag, itype, count)?;
         }

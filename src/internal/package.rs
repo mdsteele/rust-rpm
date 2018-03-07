@@ -1,7 +1,9 @@
+use bzip2::read::BzDecoder;
+use flate2::read::GzDecoder;
 use internal::header::HeaderSection;
 use internal::lead::LeadSection;
 use internal::signature::SignatureSection;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 // ========================================================================= //
 
@@ -36,8 +38,32 @@ impl<R: Read> Package<R> {
 
     /// Returns the header section.
     pub fn header(&self) -> &HeaderSection { &self.header }
+}
 
-    // TODO: Support reading Archive section
+impl<R: Read + Seek> Package<R> {
+    /// Extracts the CPIO archive from the package.
+    pub fn decompress_archive<W: Write>(&mut self, mut writer: W)
+                                        -> io::Result<()> {
+        let position = self.reader.seek(SeekFrom::Current(0))?;
+        let compressor = self.header.payload_compressor();
+        match compressor {
+            "bzip2" => {
+                let mut decoder = BzDecoder::new(self.reader.by_ref());
+                io::copy(&mut decoder, &mut writer)?;
+            }
+            "gzip" => {
+                let mut decoder = GzDecoder::new(self.reader.by_ref());
+                io::copy(&mut decoder, &mut writer)?;
+            }
+            // TODO: Support lzip/lzma/xz
+            _ => {
+                invalid_data!("Unsupported payload compressor ({:?})",
+                              compressor);
+            }
+        }
+        self.reader.seek(SeekFrom::Start(position))?;
+        Ok(())
+    }
 }
 
 // ========================================================================= //

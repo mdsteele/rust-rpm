@@ -10,7 +10,9 @@ readme = "README.md"
 
 [dependencies]
 byteorder = "1"
+bzip2 = "0.3"
 cpio = "0.1"
+flate2 = "1"
 
 [dev-dependencies]
 chrono = "0.4"
