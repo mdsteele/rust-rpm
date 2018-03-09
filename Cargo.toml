@@ -11,8 +11,9 @@ readme = "README.md"
 [dependencies]
 byteorder = "1"
 bzip2 = "0.3"
-cpio = "0.1"
+cpio = { git = "https://github.com/jcreekmore/cpio-rs", rev = "042ddc8bc871" }
 flate2 = "1"
+xz2 = "0.1"
 
 [dev-dependencies]
 chrono = "0.4"

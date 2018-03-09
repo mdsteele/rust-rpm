@@ -15,16 +15,19 @@ fn main() {
         .version(env!("CARGO_PKG_VERSION"))
         .author("Matthew D. Steele <mdsteele@alum.mit.edu>")
         .about("Inspects RPM package files")
-        .subcommand(SubCommand::with_name("archive")
-                        .about("Extracts the CPIO archive from the package")
-                        .arg(Arg::with_name("rpm")
-                                 .required(true)
-                                 .help("Path to RPM package file")))
         .subcommand(SubCommand::with_name("changelog")
                         .about("Outputs the package's changelog")
                         .arg(Arg::with_name("rpm")
                                  .required(true)
                                  .help("Path to RPM package file")))
+        .subcommand(SubCommand::with_name("extract")
+                        .about("Extracts a file from the package's archive")
+                        .arg(Arg::with_name("rpm")
+                                 .required(true)
+                                 .help("Path to RPM package file"))
+                        .arg(Arg::with_name("name")
+                                 .required(true)
+                                 .help("The name of the file to extract")))
         .subcommand(SubCommand::with_name("info")
                         .about("Prints basic information about a package")
                         .arg(Arg::with_name("rpm")
@@ -40,12 +43,7 @@ fn main() {
                                  .required(true)
                                  .help("Path to RPM package file")))
         .get_matches();
-    if let Some(submatches) = matches.subcommand_matches("archive") {
-        let path = submatches.value_of("rpm").unwrap();
-        let file = fs::File::open(path).unwrap();
-        let mut package = rpmpkg::Package::read(file).unwrap();
-        package.decompress_archive(io::stdout()).unwrap();
-    } else if let Some(submatches) = matches.subcommand_matches("changelog") {
+    if let Some(submatches) = matches.subcommand_matches("changelog") {
         let path = submatches.value_of("rpm").unwrap();
         let file = fs::File::open(path).unwrap();
         let package = rpmpkg::Package::read(file).unwrap();
@@ -54,6 +52,18 @@ fn main() {
             println!("{}    {}", datetime.format("%Y-%m-%d"), entry.author());
             println!("{}", entry.description());
             println!();
+        }
+    } else if let Some(submatches) = matches.subcommand_matches("extract") {
+        let path = submatches.value_of("rpm").unwrap();
+        let file = fs::File::open(path).unwrap();
+        let mut package = rpmpkg::Package::read(file).unwrap();
+        let filename = submatches.value_of("name").unwrap();
+        let mut archive = package.read_archive().unwrap();
+        while let Some(mut reader) = archive.next_file().unwrap() {
+            if reader.file_path() == filename {
+                io::copy(&mut reader, &mut io::stdout()).unwrap();
+                break;
+            }
         }
     } else if let Some(submatches) = matches.subcommand_matches("info") {
         let path = submatches.value_of("rpm").unwrap();
