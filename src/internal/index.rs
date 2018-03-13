@@ -182,7 +182,7 @@ impl IndexTable {
 
     /// Returns the nth value for the given tag, if it is present, and is an
     /// int16 array, and has that many values.
-    pub(crate) fn get_nth_int16(&self, tag: i32, n: usize) -> Option<i16> {
+    pub(crate) fn get_nth_int16(&self, tag: i32, n: usize) -> Option<u16> {
         match self.get(tag) {
             Some(&IndexValue::Int16(ref values)) => {
                 if n < values.len() {
@@ -197,7 +197,7 @@ impl IndexTable {
 
     /// Adds an `i16` onto the end of an existing array.  Panics if there is
     /// not already an `Int16` entry for the given tag.
-    pub(crate) fn push_int16(&mut self, tag: i32, value: i16) {
+    pub(crate) fn push_int16(&mut self, tag: i32, value: u16) {
         match self.values.get_mut(&tag) {
             Some(&mut IndexValue::Int16(ref mut array)) => {
                 array.push(value);
@@ -214,7 +214,7 @@ impl IndexTable {
 
     /// Returns the nth value for the given tag, if it is present, and is an
     /// int32 array, and has that many values.
-    pub(crate) fn get_nth_int32(&self, tag: i32, n: usize) -> Option<i32> {
+    pub(crate) fn get_nth_int32(&self, tag: i32, n: usize) -> Option<u32> {
         match self.get(tag) {
             Some(&IndexValue::Int32(ref values)) => {
                 if n < values.len() {
@@ -229,7 +229,7 @@ impl IndexTable {
 
     /// Adds an `i32` onto the end of an existing array.  Panics if there is
     /// not already an `Int32` entry for the given tag.
-    pub(crate) fn push_int32(&mut self, tag: i32, value: i32) {
+    pub(crate) fn push_int32(&mut self, tag: i32, value: u32) {
         match self.values.get_mut(&tag) {
             Some(&mut IndexValue::Int32(ref mut array)) => {
                 array.push(value);
@@ -325,13 +325,13 @@ pub enum IndexValue {
     /// An array of chars.
     Char(Vec<u8>),
     /// An array of 8-bit integers.
-    Int8(Vec<i8>),
+    Int8(Vec<u8>),
     /// An array of 16-bit integers.
-    Int16(Vec<i16>),
+    Int16(Vec<u16>),
     /// An array of 32-bit integers.
-    Int32(Vec<i32>),
+    Int32(Vec<u32>),
     /// An array of 64-bit integers.
-    Int64(Vec<i64>),
+    Int64(Vec<u64>),
     /// A single string.
     String(String),
     /// A single binary blob.
@@ -353,30 +353,28 @@ impl IndexValue {
                 Ok(IndexValue::Char(buffer))
             }
             IndexType::Int8 => {
-                let mut array = Vec::with_capacity(count as usize);
-                for _ in 0..count {
-                    array.push(reader.read_i8()?);
-                }
-                Ok(IndexValue::Int8(array))
+                let mut buffer = vec![0u8; count as usize];
+                reader.read_exact(&mut buffer)?;
+                Ok(IndexValue::Int8(buffer))
             }
             IndexType::Int16 => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
-                    array.push(reader.read_i16::<BigEndian>()?);
+                    array.push(reader.read_u16::<BigEndian>()?);
                 }
                 Ok(IndexValue::Int16(array))
             }
             IndexType::Int32 => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
-                    array.push(reader.read_i32::<BigEndian>()?);
+                    array.push(reader.read_u32::<BigEndian>()?);
                 }
                 Ok(IndexValue::Int32(array))
             }
             IndexType::Int64 => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
-                    array.push(reader.read_i64::<BigEndian>()?);
+                    array.push(reader.read_u64::<BigEndian>()?);
                 }
                 Ok(IndexValue::Int64(array))
             }
@@ -414,34 +412,28 @@ impl IndexValue {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         match *self {
             IndexValue::Null => {}
-            IndexValue::Char(ref array) => {
+            IndexValue::Char(ref array) |
+            IndexValue::Int8(ref array) |
+            IndexValue::Binary(ref array) => {
                 writer.write_all(array)?;
-            }
-            IndexValue::Int8(ref array) => {
-                for &value in array {
-                    writer.write_i8(value)?;
-                }
             }
             IndexValue::Int16(ref array) => {
                 for &value in array {
-                    writer.write_i16::<BigEndian>(value)?;
+                    writer.write_u16::<BigEndian>(value)?;
                 }
             }
             IndexValue::Int32(ref array) => {
                 for &value in array {
-                    writer.write_i32::<BigEndian>(value)?;
+                    writer.write_u32::<BigEndian>(value)?;
                 }
             }
             IndexValue::Int64(ref array) => {
                 for &value in array {
-                    writer.write_i64::<BigEndian>(value)?;
+                    writer.write_u64::<BigEndian>(value)?;
                 }
             }
             IndexValue::String(ref string) => {
                 write_nul_terminated_string(writer, string.as_str())?;
-            }
-            IndexValue::Binary(ref binary) => {
-                writer.write_all(binary)?;
             }
             IndexValue::StringArray(ref array) |
             IndexValue::I18nString(ref array) => {

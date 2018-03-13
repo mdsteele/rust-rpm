@@ -77,24 +77,21 @@ impl SignatureSection {
     /// Returns the expected combined size of the package's Header and Archive
     /// sections.
     pub fn header_and_archive_size(&self) -> u64 {
-        let size = self.table.get_nth_int32(TAG_SIZE, 0).unwrap();
-        ((size as i64) & 0xffffffff) as u64
+        self.table.get_nth_int32(TAG_SIZE, 0).unwrap() as u64
     }
 
     pub(crate) fn set_header_and_archive_size(&mut self, size: u64) {
-        self.table.set(TAG_SIZE, IndexValue::Int32(vec![size as i32]));
+        self.table.set(TAG_SIZE, IndexValue::Int32(vec![size as u32]));
     }
 
     /// Returns the expected uncompressed size (if any) of the package's
     /// Archive section.
     pub fn uncompressed_archive_size(&self) -> Option<u64> {
-        self.table
-            .get_nth_int32(TAG_PAYLOAD_SIZE, 0)
-            .map(|size| ((size as i64) & 0xffffffff) as u64)
+        self.table.get_nth_int32(TAG_PAYLOAD_SIZE, 0).map(|size| size as u64)
     }
 
     pub(crate) fn set_uncompressed_archive_size(&mut self, size: u64) {
-        self.table.set(TAG_PAYLOAD_SIZE, IndexValue::Int32(vec![size as i32]));
+        self.table.set(TAG_PAYLOAD_SIZE, IndexValue::Int32(vec![size as u32]));
     }
 }
 

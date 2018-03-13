@@ -354,7 +354,7 @@ impl HeaderSection {
             match table.get(TAG_DIRINDEXES) {
                 Some(&IndexValue::Int32(ref values)) => {
                     for &value in values.iter() {
-                        if value < 0 || (value as usize) >= dir_count {
+                        if (value as usize) >= dir_count {
                             invalid_data!("Invalid value ({}) in DIRINDEXES \
                                            entry (tag {}) in {} section \
                                            (DIRNAMES entry (tag {}) count is \
@@ -513,7 +513,7 @@ impl HeaderSection {
     pub fn build_time(&self) -> Option<SystemTime> {
         self.table
             .get_nth_int32(TAG_BUILDTIME, 0)
-            .map(convert::i32_to_system_time)
+            .map(convert::u32_to_system_time)
     }
 
     /// Returns an iterator over the entries in the package changelog.
@@ -533,17 +533,17 @@ impl HeaderSection {
 #[allow(dead_code)]
 pub struct FileInfo {
     name: String,
-    size: i32,
-    mode: i16,
-    rdev: i16,
-    mtime: i32,
+    size: u32,
+    mode: u16,
+    rdev: u16,
+    mtime: u32,
     md5: String,
     linkto: String,
-    flags: i32,
+    flags: u32,
     user: String,
     group: String,
-    device: i32,
-    inode: i32,
+    device: u32,
+    inode: u32,
     lang: String,
 }
 
@@ -552,7 +552,7 @@ impl FileInfo {
     pub fn new<S: Into<String>>(install_path: S, file_size: u32) -> FileInfo {
         FileInfo {
             name: install_path.into(),
-            size: file_size as i32,
+            size: file_size,
             mode: 0o644,
             rdev: 0,
             mtime: 0,
@@ -579,17 +579,17 @@ impl FileInfo {
                               -> io::Result<FileInfo> {
         let file_info = FileInfo {
             name: install_path,
-            size: metadata.len() as i32,
-            mode: metadata.mode() as i16,
-            rdev: metadata.rdev() as i16,
-            mtime: metadata.mtime() as i32,
+            size: metadata.len() as u32,
+            mode: metadata.mode() as u16,
+            rdev: metadata.rdev() as u16,
+            mtime: metadata.mtime() as u32,
             md5: String::new(),
             linkto: String::new(),
             flags: 0,
             user: "root".to_string(),
             group: "root".to_string(),
             device: 0,
-            inode: metadata.ino() as i32,
+            inode: metadata.ino() as u32,
             lang: String::new(),
         };
         Ok(file_info)
@@ -601,7 +601,7 @@ impl FileInfo {
         let modified_time = metadata.modified()?;
         let file_info = FileInfo {
             name: install_path,
-            size: metadata.len() as i32,
+            size: metadata.len() as u32,
             mode: if metadata.readonly() { 0o444 } else { 0o664 },
             rdev: 0,
             mtime: convert::system_time_to_u32(modified_time),
@@ -621,14 +621,14 @@ impl FileInfo {
     pub fn name(&self) -> &str { &self.name }
 
     /// Returns the size of the file, in bytes.
-    pub fn size(&self) -> u32 { ((self.size as i64) & 0xffffffff) as u32 }
+    pub fn size(&self) -> u32 { self.size }
 
     /// Returns the Unix mode bits for this file.
-    pub fn mode(&self) -> u16 { ((self.mode as i32) & 0xffff) as u16 }
+    pub fn mode(&self) -> u16 { self.mode }
 
     /// Returns the file's last-modified timestamp.
     pub fn modified_time(&self) -> SystemTime {
-        convert::i32_to_system_time(self.mtime)
+        convert::u32_to_system_time(self.mtime)
     }
 
     /// Returns the file's expected MD5 checksum.
@@ -650,7 +650,7 @@ impl FileInfo {
     pub fn group_name(&self) -> &str { &self.group }
 
     /// Returns the original inode number of the file.
-    pub fn inode(&self) -> u32 { ((self.inode as i64) & 0xffffffff) as u32 }
+    pub fn inode(&self) -> u32 { self.inode }
 }
 
 // ========================================================================= //
@@ -764,7 +764,7 @@ impl<'a> Iterator for ChangeLogIter<'a> {
         let description =
             self.table.get_nth_string(TAG_CHANGELOGTEXT, idx).unwrap();
         let entry = ChangeLogEntry {
-            timestamp: convert::i32_to_system_time(time),
+            timestamp: convert::u32_to_system_time(time),
             author: author.to_string(),
             description: description.to_string(),
         };

@@ -3,9 +3,8 @@ use std::u32;
 
 // ========================================================================= //
 
-pub fn i32_to_system_time(time: i32) -> SystemTime {
-    let seconds = ((time as i64) & 0xffffffff) as u64;
-    UNIX_EPOCH + Duration::new(seconds, 0)
+pub fn u32_to_system_time(seconds: u32) -> SystemTime {
+    UNIX_EPOCH + Duration::new(seconds as u64, 0)
 }
 
 pub fn system_time_to_u32(timestamp: SystemTime) -> u32 {
@@ -19,6 +18,30 @@ pub fn system_time_to_u32(timestamp: SystemTime) -> u32 {
             }
         }
         Err(_) => 0,
+    }
+}
+
+// ========================================================================= //
+
+#[cfg(test)]
+mod tests {
+    use super::{system_time_to_u32, u32_to_system_time};
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn system_time_round_trip() {
+        for &value in &[0, 54321, 1520908554, 0xffffffff] {
+            assert_eq!(system_time_to_u32(u32_to_system_time(value)), value);
+        }
+    }
+
+    #[test]
+    fn system_time_to_u32_limits() {
+        // Test that extreme timestamps get clamped to u32::{MIN,MAX}.
+        let timestamp = UNIX_EPOCH - Duration::new(100_000_000, 0);
+        assert_eq!(system_time_to_u32(timestamp), 0);
+        let timestamp = UNIX_EPOCH + Duration::new(10_000_000_000, 0);
+        assert_eq!(system_time_to_u32(timestamp), 0xffffffff);
     }
 }
 
