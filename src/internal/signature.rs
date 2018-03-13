@@ -1,5 +1,5 @@
-use internal::index::{IndexTable, IndexType};
-use std::io::{self, Read};
+use internal::index::{IndexTable, IndexType, IndexValue};
+use std::io::{self, Read, Seek, Write};
 
 // ========================================================================= //
 
@@ -34,12 +34,25 @@ pub struct SignatureSection {
 }
 
 impl SignatureSection {
+    pub(crate) fn placeholder() -> SignatureSection {
+        let mut table = IndexTable::new();
+        table.set(TAG_SIZE, IndexValue::Int32(vec![0]));
+        table.set(TAG_PAYLOAD_SIZE, IndexValue::Int32(vec![0]));
+        table.set(TAG_MD5, IndexValue::Binary(vec![0; 16]));
+        // TODO: Add other fields.
+        SignatureSection { table }
+    }
+
     pub(crate) fn read<R: Read>(reader: R) -> io::Result<SignatureSection> {
         let table = IndexTable::read(reader, true)?;
         for &(required, name, tag, itype, count) in ENTRIES.iter() {
             table.validate("Signature", required, name, tag, itype, count)?;
         }
         Ok(SignatureSection { table: table })
+    }
+
+    pub(crate) fn write<W: Write + Seek>(&self, writer: W) -> io::Result<()> {
+        self.table.write(writer, true)
     }
 
     /// Returns the raw underlying index table.
@@ -53,8 +66,35 @@ impl SignatureSection {
 
     /// Returns the expected MD5 checksum of the package's Header and Archive
     /// sections.
-    pub fn header_and_payload_md5(&self) -> &[u8] {
+    pub fn header_and_archive_md5(&self) -> &[u8] {
         self.table.get_binary(TAG_MD5).unwrap()
+    }
+
+    pub(crate) fn set_header_and_archive_md5(&mut self, md5: &[u8; 16]) {
+        self.table.set(TAG_MD5, IndexValue::Binary(md5.to_vec()));
+    }
+
+    /// Returns the expected combined size of the package's Header and Archive
+    /// sections.
+    pub fn header_and_archive_size(&self) -> u64 {
+        let size = self.table.get_nth_int32(TAG_SIZE, 0).unwrap();
+        ((size as i64) & 0xffffffff) as u64
+    }
+
+    pub(crate) fn set_header_and_archive_size(&mut self, size: u64) {
+        self.table.set(TAG_SIZE, IndexValue::Int32(vec![size as i32]));
+    }
+
+    /// Returns the expected uncompressed size (if any) of the package's
+    /// Archive section.
+    pub fn uncompressed_archive_size(&self) -> Option<u64> {
+        self.table
+            .get_nth_int32(TAG_PAYLOAD_SIZE, 0)
+            .map(|size| ((size as i64) & 0xffffffff) as u64)
+    }
+
+    pub(crate) fn set_uncompressed_archive_size(&mut self, size: u64) {
+        self.table.set(TAG_PAYLOAD_SIZE, IndexValue::Int32(vec![size as i32]));
     }
 }
 

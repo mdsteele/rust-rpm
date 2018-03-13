@@ -11,4 +11,15 @@ macro_rules! invalid_data {
     };
 }
 
+macro_rules! invalid_input {
+    ($e:expr) => {
+        return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidInput,
+                                         $e))
+    };
+    ($fmt:expr, $($arg:tt)+) => {
+        return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidInput,
+                                         format!($fmt, $($arg)+)))
+    };
+}
+
 // ========================================================================= //

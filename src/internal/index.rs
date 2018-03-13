@@ -1,6 +1,6 @@
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::BTreeMap;
-use std::io::{self, Cursor, Read, Seek, SeekFrom};
+use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 
 // ========================================================================= //
 
@@ -14,6 +14,10 @@ pub struct IndexTable {
 }
 
 impl IndexTable {
+    pub(crate) fn new() -> IndexTable {
+        IndexTable { values: BTreeMap::new() }
+    }
+
     pub(crate) fn read<R: Read>(mut reader: R, pad: bool)
                                 -> io::Result<IndexTable> {
         let magic_number = reader.read_u32::<BigEndian>()?;
@@ -38,21 +42,67 @@ impl IndexTable {
                 invalid_data!("Repeated tag in index table ({})", tag);
             }
             let typenum = reader.read_i32::<BigEndian>()?;
+            let index_type = match IndexType::from_number(typenum) {
+                Some(index_type) => index_type,
+                None => {
+                    invalid_data!("Invalid type number in index entry ({})",
+                                  typenum);
+                }
+            };
             let offset = reader.read_u32::<BigEndian>()?;
             let count = reader.read_u32::<BigEndian>()?;
-            index_map.insert(tag, (typenum, offset, count));
+            index_map.insert(tag, (index_type, offset, count));
         }
         let mut data = vec![0u8; data_size];
         reader.read_exact(&mut data)?;
         let mut cursor = Cursor::new(&data);
         // TODO: Get correct locale count for I18nStrings.
         let mut value_map = BTreeMap::new();
-        for (tag, (typenum, offset, count)) in index_map.into_iter() {
+        for (tag, (index_type, offset, count)) in index_map.into_iter() {
             cursor.seek(SeekFrom::Start(offset as u64))?;
-            let value = IndexValue::read(&mut cursor, typenum, count)?;
+            let value = IndexValue::read(&mut cursor, index_type, count)?;
             value_map.insert(tag, value);
         }
         Ok(IndexTable { values: value_map })
+    }
+
+    pub(crate) fn write<W: Write + Seek>(&self, mut writer: W, pad: bool)
+                                         -> io::Result<()> {
+        // Build the index store:
+        let mut data = Vec::<u8>::new();
+        let mut entry_map = BTreeMap::new();
+        for (&tag, value) in self.values.iter() {
+            let alignment = value.index_type().alignment();
+            let remainder = data.len() % alignment;
+            if remainder != 0 {
+                let pad_to = data.len() + alignment - remainder;
+                data.resize(pad_to, 0);
+            }
+            entry_map.insert(tag, (value, data.len() as u32));
+            value.write(&mut data)?;
+        }
+        if pad {
+            let alignment = 8;
+            let remainder = data.len() % alignment;
+            if remainder != 0 {
+                let pad_to = data.len() + alignment - remainder;
+                data.resize(pad_to, 0);
+            }
+        }
+
+        // Write the index table to the file:
+        writer.write_u32::<BigEndian>(MAGIC_NUMBER)?;
+        writer.write_u32::<BigEndian>(0)?; // reserved
+        writer.write_u32::<BigEndian>(self.values.len() as u32)?;
+        writer.write_u32::<BigEndian>(data.len() as u32)?;
+        for (&tag, &(value, offset)) in entry_map.iter() {
+            writer.write_i32::<BigEndian>(tag)?;
+            writer.write_i32::<BigEndian>(value.index_type().number())?;
+            writer.write_u32::<BigEndian>(offset)?;
+            writer.write_u32::<BigEndian>(value.count() as u32)?;
+        }
+        writer.write_all(&data)?;
+        Ok(())
     }
 
     /// Returns the map of all values.
@@ -66,8 +116,13 @@ impl IndexTable {
         self.values.get(&tag)
     }
 
+    /// Sets the value for the given tag.
+    pub fn set(&mut self, tag: i32, value: IndexValue) {
+        self.values.insert(tag, value);
+    }
+
     /// Returns the value for the given tag, if it is present and is a string.
-    pub fn get_string(&self, tag: i32) -> Option<&str> {
+    pub(crate) fn get_string(&self, tag: i32) -> Option<&str> {
         match self.get(tag) {
             Some(&IndexValue::String(ref string)) => Some(string.as_str()),
             _ => None,
@@ -75,16 +130,27 @@ impl IndexTable {
     }
 
     /// Returns the value for the given tag, if it is present and is binary.
-    pub fn get_binary(&self, tag: i32) -> Option<&[u8]> {
+    pub(crate) fn get_binary(&self, tag: i32) -> Option<&[u8]> {
         match self.get(tag) {
             Some(&IndexValue::Binary(ref binary)) => Some(binary.as_slice()),
             _ => None,
         }
     }
 
+    /// Returns the value for the given tag, if it is present and is a string
+    /// array.
+    pub(crate) fn get_string_array(&self, tag: i32) -> Option<&[String]> {
+        match self.get(tag) {
+            Some(&IndexValue::StringArray(ref array)) => {
+                Some(array.as_slice())
+            }
+            _ => None,
+        }
+    }
+
     /// Returns the nth value for the given tag, if it is present, and is a
     /// string array, and has that many values.
-    pub fn get_nth_string(&self, tag: i32, n: usize) -> Option<&str> {
+    pub(crate) fn get_nth_string(&self, tag: i32, n: usize) -> Option<&str> {
         match self.get(tag) {
             Some(&IndexValue::StringArray(ref values)) => {
                 if n < values.len() {
@@ -97,9 +163,26 @@ impl IndexTable {
         }
     }
 
+    /// Adds a string onto the end of an existing string array.  Panics if
+    /// there is not already a string array entry for the given tag.
+    pub(crate) fn push_string(&mut self, tag: i32, string: String) {
+        match self.values.get_mut(&tag) {
+            Some(&mut IndexValue::StringArray(ref mut array)) => {
+                array.push(string);
+            }
+            Some(value) => {
+                panic!("Internal error: Entry for tag {} is {:?}, not {:?}",
+                       tag,
+                       value.index_type(),
+                       IndexType::StringArray);
+            }
+            None => panic!("Internal error: No entry for tag {}", tag),
+        }
+    }
+
     /// Returns the nth value for the given tag, if it is present, and is an
     /// int16 array, and has that many values.
-    pub fn get_nth_int16(&self, tag: i32, n: usize) -> Option<i16> {
+    pub(crate) fn get_nth_int16(&self, tag: i32, n: usize) -> Option<i16> {
         match self.get(tag) {
             Some(&IndexValue::Int16(ref values)) => {
                 if n < values.len() {
@@ -112,9 +195,26 @@ impl IndexTable {
         }
     }
 
+    /// Adds an `i16` onto the end of an existing array.  Panics if there is
+    /// not already an `Int16` entry for the given tag.
+    pub(crate) fn push_int16(&mut self, tag: i32, value: i16) {
+        match self.values.get_mut(&tag) {
+            Some(&mut IndexValue::Int16(ref mut array)) => {
+                array.push(value);
+            }
+            Some(value) => {
+                panic!("Internal error: Entry for tag {} is {:?}, not {:?}",
+                       tag,
+                       value.index_type(),
+                       IndexType::Int16);
+            }
+            None => panic!("Internal error: No entry for tag {}", tag),
+        }
+    }
+
     /// Returns the nth value for the given tag, if it is present, and is an
     /// int32 array, and has that many values.
-    pub fn get_nth_int32(&self, tag: i32, n: usize) -> Option<i32> {
+    pub(crate) fn get_nth_int32(&self, tag: i32, n: usize) -> Option<i32> {
         match self.get(tag) {
             Some(&IndexValue::Int32(ref values)) => {
                 if n < values.len() {
@@ -124,6 +224,23 @@ impl IndexTable {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// Adds an `i32` onto the end of an existing array.  Panics if there is
+    /// not already an `Int32` entry for the given tag.
+    pub(crate) fn push_int32(&mut self, tag: i32, value: i32) {
+        match self.values.get_mut(&tag) {
+            Some(&mut IndexValue::Int32(ref mut array)) => {
+                array.push(value);
+            }
+            Some(value) => {
+                panic!("Internal error: Entry for tag {} is {:?}, not {:?}",
+                       tag,
+                       value.index_type(),
+                       IndexType::Int32);
+            }
+            None => panic!("Internal error: No entry for tag {}", tag),
         }
     }
 
@@ -226,44 +343,44 @@ pub enum IndexValue {
 }
 
 impl IndexValue {
-    fn read<R: Read>(reader: &mut R, typenum: i32, count: u32)
+    fn read<R: Read>(reader: &mut R, index_type: IndexType, count: u32)
                      -> io::Result<IndexValue> {
-        match typenum {
-            0 => Ok(IndexValue::Null),
-            1 => {
+        match index_type {
+            IndexType::Null => Ok(IndexValue::Null),
+            IndexType::Char => {
                 let mut buffer = vec![0u8; count as usize];
                 reader.read_exact(&mut buffer)?;
                 Ok(IndexValue::Char(buffer))
             }
-            2 => {
+            IndexType::Int8 => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     array.push(reader.read_i8()?);
                 }
                 Ok(IndexValue::Int8(array))
             }
-            3 => {
+            IndexType::Int16 => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     array.push(reader.read_i16::<BigEndian>()?);
                 }
                 Ok(IndexValue::Int16(array))
             }
-            4 => {
+            IndexType::Int32 => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     array.push(reader.read_i32::<BigEndian>()?);
                 }
                 Ok(IndexValue::Int32(array))
             }
-            5 => {
+            IndexType::Int64 => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     array.push(reader.read_i64::<BigEndian>()?);
                 }
                 Ok(IndexValue::Int64(array))
             }
-            6 => {
+            IndexType::String => {
                 if count != 1 {
                     invalid_data!("Invalid count in index entry for type \
                                    String (was {}, but must be 1)",
@@ -272,30 +389,68 @@ impl IndexValue {
                 let string = read_nul_terminated_string(reader)?;
                 Ok(IndexValue::String(string))
             }
-            7 => {
+            IndexType::Binary => {
                 let mut buffer = vec![0u8; count as usize];
                 reader.read_exact(&mut buffer)?;
                 Ok(IndexValue::Binary(buffer))
             }
-            8 => {
+            IndexType::StringArray => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     array.push(read_nul_terminated_string(reader)?);
                 }
                 Ok(IndexValue::StringArray(array))
             }
-            9 => {
+            IndexType::I18nString => {
                 let mut array = Vec::with_capacity(count as usize);
                 for _ in 0..count {
                     array.push(read_nul_terminated_string(reader)?);
                 }
                 Ok(IndexValue::I18nString(array))
             }
-            _ => {
-                invalid_data!("Invalid type number in index entry ({})",
-                              typenum)
+        }
+    }
+
+    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        match *self {
+            IndexValue::Null => {}
+            IndexValue::Char(ref array) => {
+                writer.write_all(array)?;
+            }
+            IndexValue::Int8(ref array) => {
+                for &value in array {
+                    writer.write_i8(value)?;
+                }
+            }
+            IndexValue::Int16(ref array) => {
+                for &value in array {
+                    writer.write_i16::<BigEndian>(value)?;
+                }
+            }
+            IndexValue::Int32(ref array) => {
+                for &value in array {
+                    writer.write_i32::<BigEndian>(value)?;
+                }
+            }
+            IndexValue::Int64(ref array) => {
+                for &value in array {
+                    writer.write_i64::<BigEndian>(value)?;
+                }
+            }
+            IndexValue::String(ref string) => {
+                write_nul_terminated_string(writer, string.as_str())?;
+            }
+            IndexValue::Binary(ref binary) => {
+                writer.write_all(binary)?;
+            }
+            IndexValue::StringArray(ref array) |
+            IndexValue::I18nString(ref array) => {
+                for string in array {
+                    write_nul_terminated_string(writer, string.as_str())?;
+                }
             }
         }
+        Ok(())
     }
 
     pub(crate) fn index_type(&self) -> IndexType {
@@ -344,6 +499,13 @@ fn read_nul_terminated_string<R: Read>(reader: &mut R) -> io::Result<String> {
     }
 }
 
+fn write_nul_terminated_string<W: Write>(writer: &mut W, string: &str)
+                                         -> io::Result<()> {
+    writer.write_all(string.as_bytes())?;
+    writer.write_u8(0)?;
+    Ok(())
+}
+
 // ========================================================================= //
 
 /// A type of value stored in a header table.
@@ -369,6 +531,149 @@ pub enum IndexType {
     StringArray,
     /// An array of localized strings.
     I18nString,
+}
+
+impl IndexType {
+    fn from_number(number: i32) -> Option<IndexType> {
+        match number {
+            0 => Some(IndexType::Null),
+            1 => Some(IndexType::Char),
+            2 => Some(IndexType::Int8),
+            3 => Some(IndexType::Int16),
+            4 => Some(IndexType::Int32),
+            5 => Some(IndexType::Int64),
+            6 => Some(IndexType::String),
+            7 => Some(IndexType::Binary),
+            8 => Some(IndexType::StringArray),
+            9 => Some(IndexType::I18nString),
+            _ => None,
+        }
+    }
+
+    fn number(&self) -> i32 {
+        match *self {
+            IndexType::Null => 0,
+            IndexType::Char => 1,
+            IndexType::Int8 => 2,
+            IndexType::Int16 => 3,
+            IndexType::Int32 => 4,
+            IndexType::Int64 => 5,
+            IndexType::String => 6,
+            IndexType::Binary => 7,
+            IndexType::StringArray => 8,
+            IndexType::I18nString => 9,
+        }
+    }
+
+    fn alignment(&self) -> usize {
+        match *self {
+            IndexType::Null => 1,
+            IndexType::Char => 1,
+            IndexType::Int8 => 1,
+            IndexType::Int16 => 2,
+            IndexType::Int32 => 4,
+            IndexType::Int64 => 8,
+            IndexType::String => 1,
+            IndexType::Binary => 1,
+            IndexType::StringArray => 1,
+            IndexType::I18nString => 1,
+        }
+    }
+
+    pub(crate) fn default_value(&self) -> IndexValue {
+        match *self {
+            IndexType::Null => IndexValue::Null,
+            IndexType::Char => IndexValue::Char(Vec::new()),
+            IndexType::Int8 => IndexValue::Int8(Vec::new()),
+            IndexType::Int16 => IndexValue::Int16(Vec::new()),
+            IndexType::Int32 => IndexValue::Int32(Vec::new()),
+            IndexType::Int64 => IndexValue::Int64(Vec::new()),
+            IndexType::String => IndexValue::String(String::new()),
+            IndexType::Binary => IndexValue::Binary(Vec::new()),
+            IndexType::StringArray => IndexValue::StringArray(Vec::new()),
+            IndexType::I18nString => IndexValue::I18nString(Vec::new()),
+        }
+    }
+}
+
+// ========================================================================= //
+
+#[cfg(test)]
+mod tests {
+    use super::{IndexTable, IndexType, IndexValue};
+    use std::io::Cursor;
+
+    const ALL_INDEX_TYPES: &[IndexType] = &[
+        IndexType::Null,
+        IndexType::Char,
+        IndexType::Int8,
+        IndexType::Int16,
+        IndexType::Int32,
+        IndexType::Int64,
+        IndexType::String,
+        IndexType::Binary,
+        IndexType::StringArray,
+        IndexType::I18nString,
+    ];
+
+    #[test]
+    fn index_type_number_round_trip() {
+        for &index_type in ALL_INDEX_TYPES {
+            assert_eq!(IndexType::from_number(index_type.number()),
+                       Some(index_type));
+        }
+    }
+
+    #[test]
+    fn index_type_default_value_round_trip() {
+        for &index_type in ALL_INDEX_TYPES {
+            assert_eq!(index_type.default_value().index_type(), index_type);
+        }
+    }
+
+    #[test]
+    fn index_table_round_trip() {
+        let mut table = IndexTable::new();
+        table.set(1000, IndexValue::Null);
+        table.set(1001, IndexValue::Char(vec![1, 2, 3, 4, 5]));
+        table.set(1002, IndexValue::Int8(vec![6, 7]));
+        table.set(1003, IndexValue::Int16(vec![890]));
+        table.set(1004, IndexValue::Int32(vec![123, 456, 789]));
+        table.set(1005, IndexValue::Int64(vec![9876543210]));
+        table.set(1006, IndexValue::String("Hello, world!".to_string()));
+        table.set(1007, IndexValue::Binary(b"\x12\x34\x56\x78\x9a".to_vec()));
+        table.set(
+            1008,
+            IndexValue::StringArray(
+                vec!["foo".to_string(), "bar".to_string()],
+            ),
+        );
+        let mut output = Cursor::new(Vec::new());
+        table.write(&mut output, false).unwrap();
+        let output = output.into_inner();
+        let table = IndexTable::read(output.as_slice(), false).unwrap();
+        assert_eq!(table.map().len(), 9);
+        assert_eq!(table.get(1000), Some(&IndexValue::Null));
+        assert_eq!(table.get(1001),
+                   Some(&IndexValue::Char(vec![1, 2, 3, 4, 5])));
+        assert_eq!(table.get(1002), Some(&IndexValue::Int8(vec![6, 7])));
+        assert_eq!(table.get(1003), Some(&IndexValue::Int16(vec![890])));
+        assert_eq!(table.get(1004),
+                   Some(&IndexValue::Int32(vec![123, 456, 789])));
+        assert_eq!(table.get(1005),
+                   Some(&IndexValue::Int64(vec![9876543210])));
+        assert_eq!(table.get(1006),
+                   Some(&IndexValue::String("Hello, world!".to_string())));
+        assert_eq!(table.get(1007),
+                   Some(&IndexValue::Binary(b"\x12\x34\x56\x78\x9a"
+                                                .to_vec())));
+        assert_eq!(
+            table.get(1008),
+            Some(&IndexValue::StringArray(
+                vec!["foo".to_string(), "bar".to_string()],
+            ))
+        );
+    }
 }
 
 // ========================================================================= //

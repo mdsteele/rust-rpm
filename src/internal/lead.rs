@@ -1,5 +1,5 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{self, Read};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{self, Read, Write};
 
 // ========================================================================= //
 
@@ -18,6 +18,11 @@ pub struct LeadSection {
 }
 
 impl LeadSection {
+    pub(crate) fn new(package_type: PackageType, name: Vec<u8>)
+                      -> LeadSection {
+        LeadSection { package_type, name }
+    }
+
     /// Reads in an RPM package file lead section.
     pub(crate) fn read<R: Read>(mut reader: R) -> io::Result<LeadSection> {
         let magic_number = reader.read_u32::<BigEndian>()?;
@@ -63,6 +68,25 @@ impl LeadSection {
         Ok(LeadSection { package_type, name })
     }
 
+    pub(crate) fn write<W: Write>(&self, mut writer: W) -> io::Result<()> {
+        writer.write_u32::<BigEndian>(MAGIC_NUMBER)?;
+        writer.write_u8(VERSION_MAJOR)?;
+        writer.write_u8(VERSION_MINOR)?;
+        writer.write_u16::<BigEndian>(self.package_type.number())?;
+        writer.write_u16::<BigEndian>(1)?; // arch
+        // The name field is always 66 bytes long.  The name itself must be at
+        // most 65 bytes and NUL-terminated.
+        let mut name = self.name.clone();
+        name.resize(65, 0);
+        name.push(0);
+        writer.write_all(&name)?;
+        writer.write_u16::<BigEndian>(OS_NUM)?;
+        writer.write_u16::<BigEndian>(SIGNATURE_TYPE)?;
+        let reserved = [0u8; 16];
+        writer.write_all(&reserved)?;
+        Ok(())
+    }
+
     /// Returns what type of package this is (binary or source).
     pub fn package_type(&self) -> PackageType { self.package_type }
 
@@ -88,6 +112,40 @@ impl PackageType {
             1 => Some(PackageType::Source),
             _ => None,
         }
+    }
+
+    pub(crate) fn number(&self) -> u16 {
+        match *self {
+            PackageType::Binary => 0,
+            PackageType::Source => 1,
+        }
+    }
+}
+
+// ========================================================================= //
+
+#[cfg(test)]
+mod tests {
+    use super::{LeadSection, PackageType};
+
+    #[test]
+    fn package_type_number_round_trip() {
+        let package_types = &[PackageType::Binary, PackageType::Source];
+        for &package_type in package_types {
+            assert_eq!(PackageType::from_number(package_type.number()),
+                       Some(package_type));
+        }
+    }
+
+    #[test]
+    fn lead_section_round_trip() {
+        let name: &[u8] = b"foobar-1.4.0-123";
+        let lead = LeadSection::new(PackageType::Source, name.to_vec());
+        let mut output = Vec::new();
+        lead.write(&mut output).unwrap();
+        let lead = LeadSection::read(output.as_slice()).unwrap();
+        assert_eq!(lead.package_type(), PackageType::Source);
+        assert_eq!(lead.name(), name);
     }
 }
 

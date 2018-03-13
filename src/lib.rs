@@ -7,10 +7,12 @@ extern crate byteorder;
 extern crate bzip2;
 extern crate cpio;
 extern crate flate2;
+extern crate md5;
 extern crate xz2;
 
 mod internal;
 
+pub use internal::builder::{ArchiveBuilder, FileWriter, PackageBuilder};
 pub use internal::header::{FileInfo, FileInfoIter, HeaderSection};
 pub use internal::index::{IndexTable, IndexValue};
 pub use internal::lead::{LeadSection, PackageType};

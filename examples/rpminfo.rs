@@ -88,6 +88,9 @@ fn main() {
             println!("Vendor: {}", vendor);
         }
         println!("License: {}", package.header().license_name());
+        println!("Compression: {}/{}",
+                 package.header().payload_compressor(),
+                 package.header().payload_compression_level());
         if let Some(time) = package.header().build_time() {
             println!("Built at: {}",
                      timestamp_datetime(time).format("%Y-%m-%d %H:%M:%S"));

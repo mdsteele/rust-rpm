@@ -1,6 +1,10 @@
+use internal::convert;
 use internal::index::{IndexTable, IndexType, IndexValue};
-use std::io::{self, Read};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::fs::Metadata;
+use std::io::{self, Read, Seek, Write};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+use std::time::SystemTime;
 
 // ========================================================================= //
 
@@ -230,6 +234,27 @@ pub struct HeaderSection {
 }
 
 impl HeaderSection {
+    pub(crate) fn new() -> HeaderSection {
+        let mut table = IndexTable::new();
+        table.set(TAG_SIZE, IndexValue::Int32(vec![0]));
+        table.set(TAG_OS, IndexValue::String(OS_STRING.to_string()));
+        table.set(TAG_PAYLOADFORMAT,
+                  IndexValue::String(PAYLOAD_FORMAT.to_string()));
+        table.set(TAG_PAYLOADCOMPRESSOR,
+                  IndexValue::String("gzip".to_string()));
+        table.set(TAG_PAYLOADFLAGS, IndexValue::String("9".to_string()));
+        table.set(TAG_OLDFILENAMES, IndexValue::StringArray(Vec::new()));
+        for &(required, _, tag, itype, _) in ENTRIES {
+            if required && !table.has(tag) {
+                table.set(tag, itype.default_value());
+            }
+        }
+        HeaderSection {
+            table,
+            use_old_filenames: true,
+        }
+    }
+
     pub(crate) fn read<R: Read>(reader: R) -> io::Result<HeaderSection> {
         let table = IndexTable::read(reader, false)?;
         for &(required, name, tag, itype, count) in ENTRIES.iter() {
@@ -279,12 +304,11 @@ impl HeaderSection {
         }
 
         // Validate file information:
-        let use_old_filenames = match table.get(TAG_REQUIRENAME) {
-            Some(&IndexValue::StringArray(ref values)) => {
-                !values.contains(&REQUIRE_COMPRESSED_FILE_NAMES.to_string())
-            }
-            _ => panic!(),
-        };
+        let use_old_filenames =
+            !table
+                .get_string_array(TAG_REQUIRENAME)
+                .unwrap()
+                .contains(&REQUIRE_COMPRESSED_FILE_NAMES.to_string());
         if use_old_filenames {
             let file_count = match table.get(TAG_OLDFILENAMES) {
                 Some(value) => value.count(),
@@ -376,6 +400,10 @@ impl HeaderSection {
            })
     }
 
+    pub(crate) fn write<W: Write + Seek>(&self, writer: W) -> io::Result<()> {
+        self.table.write(writer, false)
+    }
+
     /// Returns the raw underlying index table.
     pub fn table(&self) -> &IndexTable { &self.table }
 
@@ -384,14 +412,26 @@ impl HeaderSection {
         self.table.get_string(TAG_NAME).unwrap()
     }
 
+    pub(crate) fn set_package_name(&mut self, name: String) {
+        self.table.set(TAG_NAME, IndexValue::String(name));
+    }
+
     /// Returns the version number of the package.
     pub fn version_string(&self) -> &str {
         self.table.get_string(TAG_VERSION).unwrap()
     }
 
+    pub(crate) fn set_version_string(&mut self, version: String) {
+        self.table.set(TAG_VERSION, IndexValue::String(version));
+    }
+
     /// Returns the release number of the package.
     pub fn release_string(&self) -> &str {
         self.table.get_string(TAG_RELEASE).unwrap()
+    }
+
+    pub(crate) fn set_release_string(&mut self, release: String) {
+        self.table.set(TAG_RELEASE, IndexValue::String(release));
     }
 
     /// Returns the name of the author of the package.
@@ -410,6 +450,19 @@ impl HeaderSection {
         self.table.get_string(TAG_PAYLOADCOMPRESSOR).unwrap()
     }
 
+    pub(crate) fn set_payload_compressor(&mut self, compressor: String) {
+        self.table.set(TAG_PAYLOADCOMPRESSOR, IndexValue::String(compressor));
+    }
+
+    /// Returns the compression level used for the Archive section (e.g. "9").
+    pub fn payload_compression_level(&self) -> &str {
+        self.table.get_string(TAG_PAYLOADFLAGS).unwrap()
+    }
+
+    pub(crate) fn set_payload_compression_level(&mut self, level: String) {
+        self.table.set(TAG_PAYLOADFLAGS, IndexValue::String(level));
+    }
+
     /// Returns an iterator over the files in the package.
     pub fn files(&self) -> FileInfoIter {
         let length = self.table.get(TAG_FILESIZES).unwrap().count();
@@ -421,9 +474,46 @@ impl HeaderSection {
         }
     }
 
+    pub(crate) fn add_file(&mut self, file_info: FileInfo) {
+        if self.use_old_filenames {
+            self.table.push_string(TAG_OLDFILENAMES, file_info.name.clone());
+        } else {
+            let slash = file_info.name.rfind('/').map(|i| i + 1).unwrap_or(0);
+            let (dirname, basename) = file_info.name.split_at(slash);
+            let mut found = false;
+            let mut dirindex = 0;
+            for dir in self.table.get_string_array(TAG_DIRNAMES).unwrap() {
+                if dir == dirname {
+                    found = true;
+                    break;
+                }
+                dirindex += 1;
+            }
+            if !found {
+                self.table.push_string(TAG_DIRNAMES, dirname.to_string());
+            }
+            self.table.push_string(TAG_BASENAMES, basename.to_string());
+            self.table.push_int32(TAG_DIRINDEXES, dirindex);
+        }
+        self.table.push_int32(TAG_FILESIZES, file_info.size);
+        self.table.push_int16(TAG_FILEMODES, file_info.mode);
+        self.table.push_int16(TAG_FILERDEVS, file_info.rdev);
+        self.table.push_int32(TAG_FILEMTIMES, file_info.mtime);
+        self.table.push_string(TAG_FILEMD5S, file_info.md5.clone());
+        self.table.push_string(TAG_FILELINKTOS, file_info.linkto.clone());
+        self.table.push_int32(TAG_FILEFLAGS, file_info.flags);
+        self.table.push_string(TAG_FILEUSERNAME, file_info.user.clone());
+        self.table.push_string(TAG_FILEGROUPNAME, file_info.group.clone());
+        self.table.push_int32(TAG_FILEDEVICES, file_info.device);
+        self.table.push_int32(TAG_FILEINODES, file_info.inode);
+        self.table.push_string(TAG_FILELANGS, file_info.lang.clone());
+    }
+
     /// Returns the timestamp when the package was built, if present.
     pub fn build_time(&self) -> Option<SystemTime> {
-        self.table.get_nth_int32(TAG_BUILDTIME, 0).map(to_system_time)
+        self.table
+            .get_nth_int32(TAG_BUILDTIME, 0)
+            .map(convert::i32_to_system_time)
     }
 
     /// Returns an iterator over the entries in the package changelog.
@@ -458,17 +548,88 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
+    /// Constructs a new `FileInfo` with all other fields set to defaults.
+    pub fn new<S: Into<String>>(install_path: S, file_size: u32) -> FileInfo {
+        FileInfo {
+            name: install_path.into(),
+            size: file_size as i32,
+            mode: 0o644,
+            rdev: 0,
+            mtime: 0,
+            md5: String::new(),
+            linkto: String::new(),
+            flags: 0,
+            user: "root".to_string(),
+            group: "root".to_string(),
+            device: 0,
+            inode: 0,
+            lang: String::new(),
+        }
+    }
+
+    /// Constructs a new `FileInfo` from file metadata.
+    pub fn from_metadata<S: Into<String>>(install_path: S,
+                                          metadata: &Metadata)
+                                          -> io::Result<FileInfo> {
+        FileInfo::from_metadata_internal(install_path.into(), metadata)
+    }
+
+    #[cfg(unix)]
+    fn from_metadata_internal(install_path: String, metadata: &Metadata)
+                              -> io::Result<FileInfo> {
+        let file_info = FileInfo {
+            name: install_path,
+            size: metadata.len() as i32,
+            mode: metadata.mode() as i16,
+            rdev: metadata.rdev() as i16,
+            mtime: metadata.mtime() as i32,
+            md5: String::new(),
+            linkto: String::new(),
+            flags: 0,
+            user: "root".to_string(),
+            group: "root".to_string(),
+            device: 0,
+            inode: metadata.ino() as i32,
+            lang: String::new(),
+        };
+        Ok(file_info)
+    }
+
+    #[cfg(not(unix))]
+    fn from_metadata_internal(install_path: String, metadata: &Metadata)
+                              -> io::Result<FileInfo> {
+        let modified_time = metadata.modified()?;
+        let file_info = FileInfo {
+            name: install_path,
+            size: metadata.len() as i32,
+            mode: if metadata.readonly() { 0o444 } else { 0o664 },
+            rdev: 0,
+            mtime: convert::system_time_to_u32(modified_time),
+            md5: String::new(),
+            linkto: String::new(),
+            flags: 0,
+            user: "root".to_string(),
+            group: "root".to_string(),
+            device: 0,
+            inode: 0,
+            lang: String::new(),
+        };
+        Ok(file_info)
+    }
+
     /// Returns the install path of the file.
     pub fn name(&self) -> &str { &self.name }
 
     /// Returns the size of the file, in bytes.
-    pub fn size(&self) -> u64 { ((self.size as i64) & 0xffffffff) as u64 }
+    pub fn size(&self) -> u32 { ((self.size as i64) & 0xffffffff) as u32 }
 
     /// Returns the Unix mode bits for this file.
     pub fn mode(&self) -> u16 { ((self.mode as i32) & 0xffff) as u16 }
 
     /// Returns the file's last-modified timestamp.
-    pub fn modified_time(&self) -> SystemTime { to_system_time(self.mtime) }
+    pub fn modified_time(&self) -> SystemTime {
+        convert::i32_to_system_time(self.mtime)
+    }
 
     /// Returns the file's expected MD5 checksum.
     pub fn md5_checksum(&self) -> &str { &self.md5 }
@@ -487,6 +648,9 @@ impl FileInfo {
 
     /// Returns the name of the group for this file.
     pub fn group_name(&self) -> &str { &self.group }
+
+    /// Returns the original inode number of the file.
+    pub fn inode(&self) -> u32 { ((self.inode as i64) & 0xffffffff) as u32 }
 }
 
 // ========================================================================= //
@@ -600,7 +764,7 @@ impl<'a> Iterator for ChangeLogIter<'a> {
         let description =
             self.table.get_nth_string(TAG_CHANGELOGTEXT, idx).unwrap();
         let entry = ChangeLogEntry {
-            timestamp: to_system_time(time),
+            timestamp: convert::i32_to_system_time(time),
             author: author.to_string(),
             description: description.to_string(),
         };
@@ -614,15 +778,6 @@ impl<'a> Iterator for ChangeLogIter<'a> {
 }
 
 impl<'a> ExactSizeIterator for ChangeLogIter<'a> {}
-
-// ========================================================================= //
-
-/// Converts a timestamp in seconds since the epoch to a `SystemTime`, treating
-/// the `i32` as a `u32`.
-fn to_system_time(time: i32) -> SystemTime {
-    let seconds = ((time as i64) & 0xffffffff) as u64;
-    UNIX_EPOCH + Duration::new(seconds, 0)
-}
 
 // ========================================================================= //
 
