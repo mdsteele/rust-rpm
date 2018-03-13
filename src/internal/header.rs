@@ -30,7 +30,7 @@ const TAG_GROUP: i32 = 1016;
 const TAG_URL: i32 = 1020;
 /// Required tag for the OS of the package.  The value must be `"linux"`.
 const TAG_OS: i32 = 1021;
-/// Required tag for the archetecture that the package is for.
+/// Required tag for the architecture that the package is for.
 const TAG_ARCH: i32 = 1022;
 /// Optional tag for the uncompressed size of the Payload archive, including
 /// the cpio headers.
@@ -237,6 +237,8 @@ impl HeaderSection {
     pub(crate) fn new() -> HeaderSection {
         let mut table = IndexTable::new();
         table.set(TAG_SIZE, IndexValue::Int32(vec![0]));
+        table.set(TAG_GROUP,
+                  IndexValue::I18nString(vec!["Unspecified".to_string()]));
         table.set(TAG_OS, IndexValue::String(OS_STRING.to_string()));
         table.set(TAG_PAYLOADFORMAT,
                   IndexValue::String(PAYLOAD_FORMAT.to_string()));
@@ -434,14 +436,60 @@ impl HeaderSection {
         self.table.set(TAG_RELEASE, IndexValue::String(release));
     }
 
-    /// Returns the name of the author of the package.
+    /// Returns a one-line description of the package.
+    pub fn summary(&self) -> &str {
+        self.table.get_nth_string(TAG_SUMMARY, 0).unwrap()
+    }
+
+    pub(crate) fn set_summary(&mut self, summary: String) {
+        self.table.set(TAG_SUMMARY, IndexValue::I18nString(vec![summary]));
+    }
+
+    /// Returns a longer, multi-line description of the package.
+    pub fn description(&self) -> &str {
+        self.table.get_nth_string(TAG_DESCRIPTION, 0).unwrap()
+    }
+
+    pub(crate) fn set_description(&mut self, description: String) {
+        self.table.set(TAG_DESCRIPTION,
+                       IndexValue::I18nString(vec![description]));
+    }
+
+    /// Returns the name of the author of the package, if any.
     pub fn vendor_name(&self) -> Option<&str> {
         self.table.get_string(TAG_VENDOR)
+    }
+
+    pub(crate) fn set_vendor_name(&mut self, vendor: String) {
+        self.table.set(TAG_VENDOR, IndexValue::String(vendor));
     }
 
     /// Returns the name of the license which applies to this package.
     pub fn license_name(&self) -> &str {
         self.table.get_string(TAG_LICENSE).unwrap()
+    }
+
+    pub(crate) fn set_license_name(&mut self, license: String) {
+        self.table.set(TAG_LICENSE, IndexValue::String(license));
+    }
+
+    /// Returns the URL for a page with more information about the package, if
+    /// any.
+    pub fn homepage_url(&self) -> Option<&str> {
+        self.table.get_string(TAG_URL)
+    }
+
+    pub(crate) fn set_homepage_url(&mut self, url: String) {
+        self.table.set(TAG_URL, IndexValue::String(url));
+    }
+
+    /// Returns the architecture that the package is for (e.g. `"i386"`).
+    pub fn architecture(&self) -> &str {
+        self.table.get_string(TAG_ARCH).unwrap()
+    }
+
+    pub(crate) fn set_architecture(&mut self, arch: String) {
+        self.table.set(TAG_ARCH, IndexValue::String(arch));
     }
 
     /// Returns the name of the compression type used for the Archive section
@@ -514,6 +562,11 @@ impl HeaderSection {
         self.table
             .get_nth_int32(TAG_BUILDTIME, 0)
             .map(convert::u32_to_system_time)
+    }
+
+    pub(crate) fn set_build_time(&mut self, timestamp: SystemTime) {
+        let value = convert::system_time_to_u32(timestamp);
+        self.table.set(TAG_BUILDTIME, IndexValue::Int32(vec![value]));
     }
 
     /// Returns an iterator over the entries in the package changelog.

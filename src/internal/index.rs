@@ -149,10 +149,11 @@ impl IndexTable {
     }
 
     /// Returns the nth value for the given tag, if it is present, and is a
-    /// string array, and has that many values.
+    /// string array or i18n string array, and has that many values.
     pub(crate) fn get_nth_string(&self, tag: i32, n: usize) -> Option<&str> {
         match self.get(tag) {
-            Some(&IndexValue::StringArray(ref values)) => {
+            Some(&IndexValue::StringArray(ref values)) |
+            Some(&IndexValue::I18nString(ref values)) => {
                 if n < values.len() {
                     Some(&values[n])
                 } else {

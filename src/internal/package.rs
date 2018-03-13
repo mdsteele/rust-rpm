@@ -42,6 +42,8 @@ impl<R: Read> Package<R> {
 }
 
 impl<R: Read + Seek> Package<R> {
+    // TODO: Add a method to validate package signature.
+
     /// Reads files from the Archive section.
     pub fn read_archive(&mut self) -> io::Result<ArchiveSection<R>> {
         ArchiveSection::new(self.header.payload_compressor(), &mut self.reader)

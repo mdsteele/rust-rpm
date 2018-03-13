@@ -11,6 +11,8 @@ fn create_and_read_package() {
     builder.set_package_name("hello");
     builder.set_version_string("0.1.2");
     builder.set_release_string("debug");
+    builder.set_summary("A test package");
+    builder.set_license_name("MIT");
     builder.set_payload_compression("bzip2", 6);
     builder.add_file(FileInfo::new("/usr/lib/hi.txt", 44));
     builder.add_file(FileInfo::new("/usr/lib/bye.txt", 45));
@@ -28,6 +30,8 @@ fn create_and_read_package() {
     assert_eq!(package.header().package_name(), "hello");
     assert_eq!(package.header().version_string(), "0.1.2");
     assert_eq!(package.header().release_string(), "debug");
+    assert_eq!(package.header().summary(), "A test package");
+    assert_eq!(package.header().license_name(), "MIT");
     assert_eq!(package.header().payload_compressor(), "bzip2");
     assert_eq!(package.header().payload_compression_level(), "6");
     let files: Vec<FileInfo> = package.header().files().collect();
@@ -53,5 +57,7 @@ fn create_and_read_package() {
     }
     assert!(archive.next_file().unwrap().is_none());
 }
+
+// TODO: Add tests for gzip and xz archives as well
 
 // ========================================================================= //

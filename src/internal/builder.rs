@@ -9,6 +9,7 @@ use internal::lead::{LeadSection, PackageType};
 use internal::signature::SignatureSection;
 use md5;
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::time::SystemTime;
 use std::u32;
 use xz2::write::XzEncoder;
 
@@ -44,6 +45,36 @@ impl PackageBuilder {
         self.header.set_release_string(release.into());
     }
 
+    /// Sets the one-line description of this package.
+    pub fn set_summary<S: Into<String>>(&mut self, summary: S) {
+        self.header.set_summary(summary.into());
+    }
+
+    /// Sets the longer, multi-line description of this package.
+    pub fn set_description<S: Into<String>>(&mut self, description: S) {
+        self.header.set_description(description.into());
+    }
+
+    /// Sets the name of the author of the package.
+    pub fn set_vendor_name<S: Into<String>>(&mut self, vendor: S) {
+        self.header.set_vendor_name(vendor.into());
+    }
+
+    /// Sets the name of the license which applies to this package.
+    pub fn set_license_name<S: Into<String>>(&mut self, license: S) {
+        self.header.set_license_name(license.into());
+    }
+
+    /// Sets the URL for a page with more information about the package.
+    pub fn set_homepage_url<S: Into<String>>(&mut self, url: S) {
+        self.header.set_homepage_url(url.into());
+    }
+
+    /// Sets the architecture that the package is for (e.g. `"i386"`).
+    pub fn set_architecture<S: Into<String>>(&mut self, arch: S) {
+        self.header.set_architecture(arch.into());
+    }
+
     /// Sets the compressor and compression level used to compress the Archive
     /// section of the package.  Currently supported values for `compressor`
     /// are `"gzip"`, `"bzip2"`, and `"xz"`.  The `level` value should be
@@ -58,6 +89,16 @@ impl PackageBuilder {
     /// `ArchiveBuilder`.
     pub fn add_file(&mut self, file_info: FileInfo) {
         self.header.add_file(file_info);
+    }
+
+    /// Sets the timestamp when the package was built.
+    pub fn set_build_time(&mut self, timestamp: SystemTime) {
+        self.header.set_build_time(timestamp);
+    }
+
+    /// Sets the timestamp when the package was built to now.
+    pub fn set_build_time_to_now(&mut self) {
+        self.set_build_time(SystemTime::now());
     }
 
     /// Locks in the package metadata and returns an `ArchiveBuilder` object
