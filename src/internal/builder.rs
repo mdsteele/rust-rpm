@@ -220,6 +220,8 @@ impl<W: Read + Write + Seek> ArchiveBuilder<W> {
         let uncompressed_bytes = encoder.total_in();
         let mut writer = encoder.finish()?;
         let total_file_size = writer.seek(SeekFrom::Current(0))?;
+        // TODO: Fill in MD5 digests for individual files in the Header section
+        // TODO: Set header SHA1 in signature section
         let header_and_archive_size = total_file_size - self.header_start;
         let header_and_archive_md5 = {
             writer.seek(SeekFrom::Start(self.header_start))?;

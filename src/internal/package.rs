@@ -1,7 +1,7 @@
 use bzip2::read::BzDecoder;
 use cpio::NewcReader;
 use flate2::read::GzDecoder;
-use internal::header::HeaderSection;
+use internal::header::{FileInfo, HeaderSection};
 use internal::lead::LeadSection;
 use internal::signature::SignatureSection;
 use md5;
@@ -86,11 +86,61 @@ impl<R: Read + Seek> Package<R> {
                           expected_header_and_archive_md5);
         }
 
-        // TODO: check uncompressed payload size, if present in signature
-
         // TODO: check header SHA1, if present in signature
 
         // TODO: check PGP/GPG signature, if present
+
+        let opt_uncompressed_archive_size = self.signature
+            .uncompressed_archive_size();
+
+        // Check individual archive file sizes and MD5 checksums:
+        let file_infos: Vec<FileInfo> = self.header.files().collect();
+        let mut file_index = 0;
+        let mut archive = self.read_archive()?;
+        while let Some(mut file) = archive.next_file()? {
+            let file_info = &file_infos[file_index];
+            if file.file_size() != file_info.size() {
+                invalid_data!("Actual file size ({}) for {:?} does not match \
+                               expected size from package metadata ({})",
+                              file.file_size(),
+                              file_info.name(),
+                              file_info.size());
+            }
+            if !file_info.md5_checksum().is_empty() {
+                let actual_file_md5 = {
+                    let mut context = md5::Context::new();
+                    io::copy(&mut file, &mut context)?;
+                    format!("{:x}", context.compute())
+                };
+                let expected_file_md5 =
+                    file_info.md5_checksum().to_lowercase();
+                if actual_file_md5 != expected_file_md5 {
+                    invalid_data!("Actual file MD5 digest ({}) for {:?} does \
+                                   not match expected digest from package \
+                                   metadata ({})",
+                                  actual_file_md5,
+                                  file_info.name(),
+                                  expected_file_md5);
+                }
+            }
+            file_index += 1;
+        }
+
+        // Check total archive uncompressed size:
+        if let Some(expected_uncompressed_archive_size) =
+            opt_uncompressed_archive_size
+        {
+            let actual_uncompressed_archive_size = archive.decoder.total_out();
+            if actual_uncompressed_archive_size !=
+                expected_uncompressed_archive_size
+            {
+                invalid_data!("Actual uncompressed archive size ({}) does \
+                               not match expected size from package signature \
+                               ({})",
+                              actual_uncompressed_archive_size,
+                              expected_uncompressed_archive_size);
+            }
+        }
 
         Ok(())
     }
@@ -109,7 +159,7 @@ impl<'p, R: 'p + Read + Seek> ArchiveSection<'p, R> {
            -> io::Result<ArchiveSection<'p, R>> {
         let decoder = match compressor {
             "bzip2" => ArchiveDecoder::Bzip2(BzDecoder::new(reader)),
-            "gzip" => ArchiveDecoder::Gzip(GzDecoder::new(reader)),
+            "gzip" => ArchiveDecoder::Gzip(GzDecoder::new(reader), 0),
             "xz" => ArchiveDecoder::Xz(XzDecoder::new(reader)),
             _ => {
                 invalid_data!("Unsupported payload compressor ({:?})",
@@ -143,15 +193,29 @@ impl<'a, 'p: 'a, R: 'p + Read + Seek> ArchiveSection<'p, R> {
 
 enum ArchiveDecoder<'p, R: 'p + Read> {
     Bzip2(BzDecoder<&'p mut R>),
-    Gzip(GzDecoder<&'p mut R>),
+    Gzip(GzDecoder<&'p mut R>, u64),
     Xz(XzDecoder<&'p mut R>),
+}
+
+impl<'p, R: Read> ArchiveDecoder<'p, R> {
+    fn total_out(&self) -> u64 {
+        match *self {
+            ArchiveDecoder::Bzip2(ref decoder) => decoder.total_out(),
+            ArchiveDecoder::Gzip(_, total_out) => total_out,
+            ArchiveDecoder::Xz(ref decoder) => decoder.total_out(),
+        }
+    }
 }
 
 impl<'p, R: Read> Read for ArchiveDecoder<'p, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match *self {
             ArchiveDecoder::Bzip2(ref mut decoder) => decoder.read(buf),
-            ArchiveDecoder::Gzip(ref mut decoder) => decoder.read(buf),
+            ArchiveDecoder::Gzip(ref mut decoder, ref mut total_out) => {
+                let bytes_read = decoder.read(buf)?;
+                *total_out += bytes_read as u64;
+                Ok(bytes_read)
+            }
             ArchiveDecoder::Xz(ref mut decoder) => decoder.read(buf),
         }
     }
@@ -171,8 +235,8 @@ impl<'a, 'p, R: Read> FileReader<'a, 'p, R> {
     }
 
     /// Returns the size of the file, in bytes.
-    pub fn file_size(&self) -> u64 {
-        self.reader.as_ref().unwrap().entry().file_size() as u64
+    pub fn file_size(&self) -> u32 {
+        self.reader.as_ref().unwrap().entry().file_size()
     }
 }
 
