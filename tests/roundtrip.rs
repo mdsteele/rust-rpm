@@ -25,6 +25,7 @@ fn create_and_read_package() {
     let package_file = Cursor::new(builder.finish().unwrap().into_inner());
 
     let mut package = Package::read(package_file).unwrap();
+    package.validate().unwrap();
     assert_eq!(package.lead().package_type(), PackageType::Binary);
     assert_eq!(package.lead().name(), "hello-0.1.2-debug".as_bytes());
     assert_eq!(package.header().package_name(), "hello");

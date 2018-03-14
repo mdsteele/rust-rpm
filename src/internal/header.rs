@@ -451,8 +451,8 @@ impl HeaderSection {
     }
 
     pub(crate) fn set_description(&mut self, description: String) {
-        self.table.set(TAG_DESCRIPTION,
-                       IndexValue::I18nString(vec![description]));
+        self.table
+            .set(TAG_DESCRIPTION, IndexValue::I18nString(vec![description]));
     }
 
     /// Returns the name of the author of the package, if any.

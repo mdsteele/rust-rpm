@@ -3,9 +3,9 @@ use std::io::{self, Read, Seek, Write};
 
 // ========================================================================= //
 
-/// Required tag for the combined size of the Header and Payload sections.
+/// Required tag for the combined size of the Header and Archive sections.
 const TAG_SIZE: i32 = 1000;
-/// Optional tag for the uncompressed size of the Payload archive, including
+/// Optional tag for the uncompressed size of the Archive section, including
 /// the cpio headers.
 const TAG_PAYLOAD_SIZE: i32 = 1007;
 
@@ -66,8 +66,11 @@ impl SignatureSection {
 
     /// Returns the expected MD5 checksum of the package's Header and Archive
     /// sections.
-    pub fn header_and_archive_md5(&self) -> &[u8] {
-        self.table.get_binary(TAG_MD5).unwrap()
+    pub fn header_and_archive_md5(&self) -> &[u8; 16] {
+        let hash: &[u8] = self.table.get_binary(TAG_MD5).unwrap();
+        assert_eq!(hash.len(), 16);
+        let hash: &[u8; 16] = unsafe { &*(hash.as_ptr() as *const [u8; 16]) };
+        hash
     }
 
     pub(crate) fn set_header_and_archive_md5(&mut self, md5: &[u8; 16]) {

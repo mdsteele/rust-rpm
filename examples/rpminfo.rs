@@ -42,6 +42,11 @@ fn main() {
                         .arg(Arg::with_name("rpm")
                                  .required(true)
                                  .help("Path to RPM package file")))
+        .subcommand(SubCommand::with_name("validate")
+                        .about("Validates the package signature")
+                        .arg(Arg::with_name("rpm")
+                                 .required(true)
+                                 .help("Path to RPM package file")))
         .get_matches();
     if let Some(submatches) = matches.subcommand_matches("changelog") {
         let path = submatches.value_of("rpm").unwrap();
@@ -149,6 +154,12 @@ fn main() {
             }
             println!("{}", line);
         }
+    } else if let Some(submatches) = matches.subcommand_matches("validate") {
+        let path = submatches.value_of("rpm").unwrap();
+        let file = fs::File::open(path).unwrap();
+        let mut package = rpmpkg::Package::read(file).unwrap();
+        package.validate().unwrap();
+        println!("Package signature ok.");
     }
 }
 
