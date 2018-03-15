@@ -1,3 +1,5 @@
+use sha1::Sha1;
+use std::io::{self, Write};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::u32;
 
@@ -19,6 +21,27 @@ pub fn system_time_to_u32(timestamp: SystemTime) -> u32 {
         }
         Err(_) => 0,
     }
+}
+
+// ========================================================================= //
+
+pub struct Sha1Writer {
+    context: Sha1,
+}
+
+impl Sha1Writer {
+    pub fn new() -> Sha1Writer { Sha1Writer { context: Sha1::new() } }
+
+    pub fn digest(&self) -> String { self.context.hexdigest() }
+}
+
+impl Write for Sha1Writer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.context.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> { Ok(()) }
 }
 
 // ========================================================================= //

@@ -1,6 +1,7 @@
 use bzip2::read::BzDecoder;
 use cpio::NewcReader;
 use flate2::read::GzDecoder;
+use internal::convert::Sha1Writer;
 use internal::header::{FileInfo, HeaderSection};
 use internal::lead::LeadSection;
 use internal::signature::SignatureSection;
@@ -86,7 +87,24 @@ impl<R: Read + Seek> Package<R> {
                           expected_header_and_archive_md5);
         }
 
-        // TODO: check header SHA1, if present in signature
+        // Check header SHA1, if present:
+        if let Some(expected_header_sha1) = self.signature.header_sha1() {
+            let actual_header_sha1 = {
+                let header_size = self.archive_start - self.header_start;
+                self.reader.seek(SeekFrom::Start(self.header_start))?;
+                let mut context = Sha1Writer::new();
+                io::copy(&mut self.reader.by_ref().take(header_size),
+                         &mut context)?;
+                context.digest()
+            };
+            if actual_header_sha1 != expected_header_sha1 {
+                invalid_data!("Actual package header SHA1 digest ({}) does \
+                               not match expected digest from package \
+                               signature ({})",
+                              actual_header_sha1,
+                              expected_header_sha1);
+            }
+        }
 
         // TODO: check PGP/GPG signature, if present
 
@@ -126,7 +144,7 @@ impl<R: Read + Seek> Package<R> {
             file_index += 1;
         }
 
-        // Check total archive uncompressed size:
+        // Check total archive uncompressed size, if present:
         if let Some(expected_uncompressed_archive_size) =
             opt_uncompressed_archive_size
         {

@@ -8,6 +8,7 @@ extern crate bzip2;
 extern crate cpio;
 extern crate flate2;
 extern crate md5;
+extern crate sha1;
 extern crate xz2;
 
 mod internal;

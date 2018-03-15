@@ -1,3 +1,4 @@
+use internal::convert::Sha1Writer;
 use internal::index::{IndexTable, IndexType, IndexValue};
 use std::io::{self, Read, Seek, Write};
 
@@ -39,7 +40,9 @@ impl SignatureSection {
         table.set(TAG_SIZE, IndexValue::Int32(vec![0]));
         table.set(TAG_PAYLOAD_SIZE, IndexValue::Int32(vec![0]));
         table.set(TAG_MD5, IndexValue::Binary(vec![0; 16]));
-        // TODO: Add other fields.
+        let empty_sha1 = Sha1Writer::new().digest();
+        debug_assert_eq!(empty_sha1.len(), 40);
+        table.set(TAG_SHA1, IndexValue::String(empty_sha1));
         SignatureSection { table }
     }
 
@@ -64,6 +67,11 @@ impl SignatureSection {
         self.table.get_string(TAG_SHA1)
     }
 
+    pub(crate) fn set_header_sha1(&mut self, digest: String) {
+        debug_assert_eq!(digest.len(), 40);
+        self.table.set(TAG_SHA1, IndexValue::String(digest));
+    }
+
     /// Returns the expected MD5 checksum of the package's Header and Archive
     /// sections.
     pub fn header_and_archive_md5(&self) -> &[u8; 16] {
@@ -73,8 +81,8 @@ impl SignatureSection {
         hash
     }
 
-    pub(crate) fn set_header_and_archive_md5(&mut self, md5: &[u8; 16]) {
-        self.table.set(TAG_MD5, IndexValue::Binary(md5.to_vec()));
+    pub(crate) fn set_header_and_archive_md5(&mut self, digest: &[u8; 16]) {
+        self.table.set(TAG_MD5, IndexValue::Binary(digest.to_vec()));
     }
 
     /// Returns the expected combined size of the package's Header and Archive

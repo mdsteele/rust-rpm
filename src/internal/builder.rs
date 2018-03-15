@@ -3,7 +3,7 @@ use bzip2::write::BzEncoder;
 use cpio;
 use flate2::Compression as GzCompression;
 use flate2::write::GzEncoder;
-use internal::convert;
+use internal::convert::{self, Sha1Writer};
 use internal::header::{FileInfo, HeaderSection};
 use internal::lead::{LeadSection, PackageType};
 use internal::signature::SignatureSection;
@@ -117,6 +117,7 @@ impl PackageBuilder {
         signature.write(&mut writer)?;
         let header_start = writer.seek(SeekFrom::Current(0))?;
         self.header.write(&mut writer)?;
+        let archive_start = writer.seek(SeekFrom::Current(0))?;
         let file_infos = self.header.files().collect();
         let compressor = self.header.payload_compressor();
         let encoder = match compressor {
@@ -169,6 +170,7 @@ impl PackageBuilder {
             signature_start,
             signature,
             header_start,
+            archive_start,
             file_infos,
             next_file_index: 0,
         };
@@ -184,6 +186,7 @@ pub struct ArchiveBuilder<W: Read + Write + Seek> {
     signature_start: u64,
     signature: SignatureSection,
     header_start: u64,
+    archive_start: u64,
     file_infos: Vec<FileInfo>,
     next_file_index: usize,
 }
@@ -221,7 +224,7 @@ impl<W: Read + Write + Seek> ArchiveBuilder<W> {
         let mut writer = encoder.finish()?;
         let total_file_size = writer.seek(SeekFrom::Current(0))?;
         // TODO: Fill in MD5 digests for individual files in the Header section
-        // TODO: Set header SHA1 in signature section
+        let header_size = self.archive_start - self.header_start;
         let header_and_archive_size = total_file_size - self.header_start;
         let header_and_archive_md5 = {
             writer.seek(SeekFrom::Start(self.header_start))?;
@@ -232,9 +235,17 @@ impl<W: Read + Write + Seek> ArchiveBuilder<W> {
             let md5::Digest(digest) = context.compute();
             digest
         };
+        let header_sha1 = {
+            writer.seek(SeekFrom::Start(self.header_start))?;
+            let mut context = Sha1Writer::new();
+            io::copy(&mut io::Read::by_ref(&mut writer).take(header_size),
+                     &mut context)?;
+            context.digest()
+        };
         self.signature.set_uncompressed_archive_size(uncompressed_bytes);
         self.signature.set_header_and_archive_size(header_and_archive_size);
         self.signature.set_header_and_archive_md5(&header_and_archive_md5);
+        self.signature.set_header_sha1(header_sha1);
         writer.seek(SeekFrom::Start(self.signature_start))?;
         self.signature.write(&mut writer)?;
         writer.seek(SeekFrom::Start(total_file_size))?;
