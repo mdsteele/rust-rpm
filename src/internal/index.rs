@@ -4,7 +4,24 @@ use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 
 // ========================================================================= //
 
+/// Magic number identifying an index table.
 const MAGIC_NUMBER: u32 = 0x8eade801;
+
+// ========================================================================= //
+
+/// Header-private tag identifying a signature table.
+const TAG_HEADERSIGNATURES: i32 = 62;
+/// Header-private tag identifying a header table.
+const TAG_HEADERIMMUTABLE: i32 = 63;
+/// Header-private tag for the list of locales used in I18nStrings entries.
+const TAG_HEADERI18NTABLE: i32 = 100;
+
+#[cfg_attr(rustfmt, rustfmt_skip)]
+const ENTRIES: &[(&str, i32, IndexType, Option<usize>)] = &[
+    ("HEADERSIGNATURES", TAG_HEADERSIGNATURES, IndexType::Binary,  Some(16)),
+    ("HEADERIMMUTABLE",  TAG_HEADERIMMUTABLE,  IndexType::Binary,  Some(16)),
+    ("HEADERI18NTABLE",  TAG_HEADERI18NTABLE,  IndexType::StringArray, None),
+];
 
 // ========================================================================= //
 
@@ -18,16 +35,21 @@ impl IndexTable {
         IndexTable { values: BTreeMap::new() }
     }
 
-    pub(crate) fn read<R: Read>(mut reader: R, pad: bool)
+    pub(crate) fn read<R: Read>(mut reader: R, section: &str, pad: bool)
                                 -> io::Result<IndexTable> {
         let magic_number = reader.read_u32::<BigEndian>()?;
         if magic_number != MAGIC_NUMBER {
-            invalid_data!("Invalid magic number for index table ({:08x})",
-                          magic_number);
+            invalid_data!("Invalid magic number for index table in {} section \
+                           (was {:08x}, but must be {:08x})",
+                          section,
+                          magic_number,
+                          MAGIC_NUMBER);
         }
         let reserved = reader.read_u32::<BigEndian>()?;
         if reserved != 0 {
-            invalid_data!("Invalid reserved field for index table ({:08x})",
+            invalid_data!("Invalid reserved field for index table in {} \
+                           section (was {:08x}, but must be zero)",
+                          section,
                           reserved);
         }
         let num_values = reader.read_u32::<BigEndian>()? as usize;
@@ -63,7 +85,11 @@ impl IndexTable {
             let value = IndexValue::read(&mut cursor, index_type, count)?;
             value_map.insert(tag, value);
         }
-        Ok(IndexTable { values: value_map })
+        let table = IndexTable { values: value_map };
+        for &(name, tag, itype, count) in ENTRIES.iter() {
+            table.expect_type(section, false, name, tag, itype, count)?;
+        }
+        Ok(table)
     }
 
     pub(crate) fn write<W: Write + Seek>(&self, mut writer: W, pad: bool)
@@ -108,6 +134,15 @@ impl IndexTable {
     /// Returns the map of all values.
     pub fn map(&self) -> &BTreeMap<i32, IndexValue> { &self.values }
 
+    /// Returns the list of locales used in I18nStrings entries in this table.
+    pub fn locales(&self) -> &[String] {
+        self.get_strings(TAG_HEADERI18NTABLE).unwrap_or(&[])
+    }
+
+    pub(crate) fn set_locales(&mut self, locales: Vec<String>) {
+        self.set(TAG_HEADERI18NTABLE, IndexValue::StringArray(locales));
+    }
+
     /// Returns true if the given tag is present.
     pub fn has(&self, tag: i32) -> bool { self.values.contains_key(&tag) }
 
@@ -138,12 +173,11 @@ impl IndexTable {
     }
 
     /// Returns the value for the given tag, if it is present and is a string
-    /// array.
-    pub(crate) fn get_string_array(&self, tag: i32) -> Option<&[String]> {
+    /// array or i18n string array.
+    pub(crate) fn get_strings(&self, tag: i32) -> Option<&[String]> {
         match self.get(tag) {
-            Some(&IndexValue::StringArray(ref array)) => {
-                Some(array.as_slice())
-            }
+            Some(&IndexValue::StringArray(ref array)) |
+            Some(&IndexValue::I18nString(ref array)) => Some(array.as_slice()),
             _ => None,
         }
     }
@@ -245,9 +279,51 @@ impl IndexTable {
         }
     }
 
-    pub(crate) fn validate(&self, section: &str, required: bool, name: &str,
-                           tag: i32, itype: IndexType, count: Option<usize>)
-                           -> io::Result<()> {
+    pub(crate) fn add_signatures_index(&mut self) {
+        self.add_meta_index(TAG_HEADERSIGNATURES);
+    }
+
+    pub(crate) fn add_immutable_index(&mut self) {
+        self.add_meta_index(TAG_HEADERIMMUTABLE);
+    }
+
+    fn add_meta_index(&mut self, tag: i32) {
+        let offset = -4 * (self.values.len() as i32 + 1);
+        let mut data = Vec::new();
+        data.write_i32::<BigEndian>(tag).unwrap();
+        data.write_i32::<BigEndian>(IndexType::Binary.number()).unwrap();
+        data.write_i32::<BigEndian>(offset).unwrap();
+        data.write_u32::<BigEndian>(16).unwrap();
+        self.set(tag, IndexValue::Binary(data));
+    }
+
+    pub(crate) fn expect_signatures_index(&self, section: &str)
+                                          -> io::Result<()> {
+        self.expect_meta_index(section,
+                               "HEADERSIGNATURES",
+                               TAG_HEADERSIGNATURES)
+    }
+
+    pub(crate) fn expect_immutable_index(&self, section: &str)
+                                         -> io::Result<()> {
+        self.expect_meta_index(section, "HEADERIMMUTABLE", TAG_HEADERIMMUTABLE)
+    }
+
+    fn expect_meta_index(&self, section: &str, name: &str, tag: i32)
+                         -> io::Result<()> {
+        if !self.has(tag) {
+            invalid_data!("Missing {} entry (tag {}) in {} section",
+                          name,
+                          tag,
+                          section);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn expect_type(&self, section: &str, required: bool,
+                              name: &str, tag: i32, itype: IndexType,
+                              count: Option<usize>)
+                              -> io::Result<()> {
         if let Some(value) = self.get(tag) {
             let actual_itype = value.index_type();
             if actual_itype != itype {
@@ -281,9 +357,10 @@ impl IndexTable {
         Ok(())
     }
 
-    pub(crate) fn expect_count(&self, section: &str, name1: &str, tag1: i32,
-                               count1: usize, name2: &str, tag2: i32)
-                               -> io::Result<()> {
+    pub(crate) fn expect_same_counts(&self, section: &str, name1: &str,
+                                     tag1: i32, count1: usize, name2: &str,
+                                     tag2: i32)
+                                     -> io::Result<()> {
         let count2 = self.get(tag2).map(IndexValue::count).unwrap_or(0);
         if count1 != count2 {
             invalid_data!("Counts for {} entry (tag {}) and {} entry (tag {}) \
@@ -644,7 +721,7 @@ mod tests {
         let mut output = Cursor::new(Vec::new());
         table.write(&mut output, false).unwrap();
         let output = output.into_inner();
-        let table = IndexTable::read(output.as_slice(), false).unwrap();
+        let table = IndexTable::read(output.as_slice(), "Foo", false).unwrap();
         assert_eq!(table.map().len(), 9);
         assert_eq!(table.get(1000), Some(&IndexValue::Null));
         assert_eq!(table.get(1001),

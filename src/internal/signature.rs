@@ -4,6 +4,11 @@ use std::io::{self, Read, Seek, Write};
 
 // ========================================================================= //
 
+/// The name of this section.
+const SECTION: &str = "Signature";
+
+// ========================================================================= //
+
 /// Required tag for the combined size of the Header and Archive sections.
 const TAG_SIZE: i32 = 1000;
 /// Optional tag for the uncompressed size of the Archive section, including
@@ -43,13 +48,15 @@ impl SignatureSection {
         let empty_sha1 = Sha1Writer::new().digest();
         debug_assert_eq!(empty_sha1.len(), 40);
         table.set(TAG_SHA1, IndexValue::String(empty_sha1));
+        table.add_signatures_index();
         SignatureSection { table }
     }
 
     pub(crate) fn read<R: Read>(reader: R) -> io::Result<SignatureSection> {
-        let table = IndexTable::read(reader, true)?;
+        let table = IndexTable::read(reader, SECTION, true)?;
+        table.expect_signatures_index(SECTION)?;
         for &(required, name, tag, itype, count) in ENTRIES.iter() {
-            table.validate("Signature", required, name, tag, itype, count)?;
+            table.expect_type(SECTION, required, name, tag, itype, count)?;
         }
         Ok(SignatureSection { table: table })
     }

@@ -103,7 +103,7 @@ impl PackageBuilder {
 
     /// Locks in the package metadata and returns an `ArchiveBuilder` object
     /// for writing archive files into the package.
-    pub fn build<W: Read + Write + Seek>(self, mut writer: W)
+    pub fn build<W: Read + Write + Seek>(mut self, mut writer: W)
                                          -> io::Result<ArchiveBuilder<W>> {
         let full_name = format!("{}-{}-{}",
                                 self.header.package_name(),
@@ -116,6 +116,7 @@ impl PackageBuilder {
         let signature = SignatureSection::placeholder();
         signature.write(&mut writer)?;
         let header_start = writer.seek(SeekFrom::Current(0))?;
+        self.header.done_adding_fields();
         self.header.write(&mut writer)?;
         let archive_start = writer.seek(SeekFrom::Current(0))?;
         let file_infos = self.header.files().collect();

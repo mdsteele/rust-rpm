@@ -236,6 +236,7 @@ pub struct HeaderSection {
 impl HeaderSection {
     pub(crate) fn new() -> HeaderSection {
         let mut table = IndexTable::new();
+        table.set_locales(vec!["C".to_string()]);
         table.set(TAG_SIZE, IndexValue::Int32(vec![0]));
         table.set(TAG_GROUP,
                   IndexValue::I18nString(vec!["Unspecified".to_string()]));
@@ -258,9 +259,13 @@ impl HeaderSection {
     }
 
     pub(crate) fn read<R: Read>(reader: R) -> io::Result<HeaderSection> {
-        let table = IndexTable::read(reader, false)?;
+        let table = IndexTable::read(reader, SECTION, false)?;
+        table.expect_immutable_index(SECTION)?;
+        if table.locales().is_empty() {
+            invalid_data!("No locales set for header section");
+        }
         for &(required, name, tag, itype, count) in ENTRIES.iter() {
-            table.validate(SECTION, required, name, tag, itype, count)?;
+            table.expect_type(SECTION, required, name, tag, itype, count)?;
         }
 
         // Validate package information:
@@ -308,7 +313,7 @@ impl HeaderSection {
         // Validate file information:
         let use_old_filenames =
             !table
-                .get_string_array(TAG_REQUIRENAME)
+                .get_strings(TAG_REQUIRENAME)
                 .unwrap()
                 .contains(&REQUIRE_COMPRESSED_FILE_NAMES.to_string());
         if use_old_filenames {
@@ -325,12 +330,12 @@ impl HeaderSection {
             };
             for &(name, tag) in FILE_ENTRIES.iter() {
                 table
-                    .expect_count(SECTION,
-                                  "OLDFILENAMES",
-                                  TAG_OLDFILENAMES,
-                                  file_count,
-                                  name,
-                                  tag)?;
+                    .expect_same_counts(SECTION,
+                                        "OLDFILENAMES",
+                                        TAG_OLDFILENAMES,
+                                        file_count,
+                                        name,
+                                        tag)?;
             }
         } else {
             let dir_count = match table.get(TAG_DIRNAMES) {
@@ -379,20 +384,20 @@ impl HeaderSection {
                 }
             }
             table
-                .expect_count(SECTION,
-                              "BASENAMES",
-                              TAG_BASENAMES,
-                              file_count,
-                              "DIRINDEXES",
-                              TAG_DIRINDEXES)?;
+                .expect_same_counts(SECTION,
+                                    "BASENAMES",
+                                    TAG_BASENAMES,
+                                    file_count,
+                                    "DIRINDEXES",
+                                    TAG_DIRINDEXES)?;
             for &(name, tag) in FILE_ENTRIES.iter() {
                 table
-                    .expect_count(SECTION,
-                                  "BASENAMES",
-                                  TAG_BASENAMES,
-                                  file_count,
-                                  name,
-                                  tag)?;
+                    .expect_same_counts(SECTION,
+                                        "BASENAMES",
+                                        TAG_BASENAMES,
+                                        file_count,
+                                        name,
+                                        tag)?;
             }
         }
 
@@ -400,6 +405,10 @@ impl HeaderSection {
                table,
                use_old_filenames,
            })
+    }
+
+    pub(crate) fn done_adding_fields(&mut self) {
+        self.table.add_immutable_index();
     }
 
     pub(crate) fn write<W: Write + Seek>(&self, writer: W) -> io::Result<()> {
@@ -530,7 +539,7 @@ impl HeaderSection {
             let (dirname, basename) = file_info.name.split_at(slash);
             let mut found = false;
             let mut dirindex = 0;
-            for dir in self.table.get_string_array(TAG_DIRNAMES).unwrap() {
+            for dir in self.table.get_strings(TAG_DIRNAMES).unwrap() {
                 if dir == dirname {
                     found = true;
                     break;
