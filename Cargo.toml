@@ -11,7 +11,7 @@ readme = "README.md"
 [dependencies]
 byteorder = "1"
 bzip2 = "0.3"
-cpio = { git = "https://github.com/jcreekmore/cpio-rs", rev = "042ddc8bc871" }
+cpio = { git = "https://github.com/jcreekmore/cpio-rs", rev = "6d7334d5201e" }
 flate2 = "1"
 md5 = "0.3"
 sha1 = { version = "0.6", features = ["std"] }
