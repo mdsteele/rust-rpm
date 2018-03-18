@@ -464,6 +464,11 @@ impl HeaderSection {
             .set(TAG_DESCRIPTION, IndexValue::I18nString(vec![description]));
     }
 
+    /// Returns the sum of the sizes of the installed files.
+    pub fn total_install_size(&self) -> u32 {
+        self.table.get_nth_int32(TAG_SIZE, 0).unwrap()
+    }
+
     /// Returns the name of the author of the package, if any.
     pub fn vendor_name(&self) -> Option<&str> {
         self.table.get_string(TAG_VENDOR)
@@ -564,6 +569,8 @@ impl HeaderSection {
         self.table.push_int32(TAG_FILEDEVICES, file_info.device);
         self.table.push_int32(TAG_FILEINODES, file_info.inode);
         self.table.push_string(TAG_FILELANGS, file_info.lang.clone());
+        let total_install_size = self.total_install_size() + file_info.size;
+        self.table.set(TAG_SIZE, IndexValue::Int32(vec![total_install_size]));
     }
 
     /// Returns the timestamp when the package was built, if present.

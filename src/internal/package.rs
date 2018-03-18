@@ -113,6 +113,8 @@ impl<R: Read + Seek> Package<R> {
 
         // Check individual archive file sizes and MD5 checksums:
         let file_infos: Vec<FileInfo> = self.header.files().collect();
+        let expected_total_install_size = self.header.total_install_size();
+        let mut actual_total_install_size = 0;
         let mut file_index = 0;
         let mut archive = self.read_archive()?;
         while let Some(mut file) = archive.next_file()? {
@@ -124,6 +126,7 @@ impl<R: Read + Seek> Package<R> {
                               file_info.name(),
                               file_info.size());
             }
+            actual_total_install_size += file.file_size();
             if !file_info.md5_checksum().is_empty() {
                 let actual_file_md5 = {
                     let mut context = md5::Context::new();
@@ -142,6 +145,14 @@ impl<R: Read + Seek> Package<R> {
                 }
             }
             file_index += 1;
+        }
+
+        // Check total install size:
+        if actual_total_install_size != expected_total_install_size {
+            invalid_data!("Actual total install size ({}) does not match \
+                           expected size from package header ({})",
+                          actual_total_install_size,
+                          expected_total_install_size);
         }
 
         // Check total archive uncompressed size, if present:
